@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addDays, periodRange, zonedParts } from '../server/time.js';
-import { distanceMeters } from '../server/geo.js';
-import { averageDescriptor, euclideanDistance, isValidDescriptor } from '../server/face.js';
-import { pairShifts } from '../server/reports.js';
+import { addDays, periodRange, zonedParts } from '../supabase/functions/_shared/time.js';
+import { distanceMeters } from '../supabase/functions/_shared/geo.js';
+import { averageDescriptor, euclideanDistance, isValidDescriptor } from '../supabase/functions/_shared/face.js';
+import { pairShifts } from '../supabase/functions/_shared/reports.js';
 
 test('zonedParts usa la zona horaria real de cada ubicación', () => {
   const instant = new Date('2025-03-24T14:42:00Z');

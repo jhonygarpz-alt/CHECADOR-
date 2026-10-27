@@ -1,19 +1,22 @@
 {
   "name": "asisteapp",
   "version": "1.0.0",
-  "description": "Control de asistencia para personal administrativo con reconocimiento facial, geolocalización, zonas horarias y reportes en tiempo real.",
+  "description": "Control de asistencia con reconocimiento facial, geolocalización, zonas horarias y reportes en tiempo real, sobre Supabase.",
   "type": "module",
   "private": true,
   "engines": {
     "node": ">=22.13"
   },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning server/index.js",
-    "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js",
-    "seed:demo": "node --disable-warning=ExperimentalWarning scripts/seed-demo.js",
-    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.js\""
+    "dev": "node scripts/serve.mjs",
+    "test": "node --test \"test/*.test.js\"",
+    "test:integration": "node --test \"test/integration/*.test.js\"",
+    "supabase:start": "supabase start -x studio,imgproxy,logflare,vector,mailpit,postgres-meta,supavisor",
+    "seed:demo": "node scripts/seed-demo.mjs"
   },
-  "dependencies": {
-    "express": "^5.1.0"
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.117.3",
+    "postgres": "^3.4.9",
+    "supabase": "^2.120.0"
   }
 }

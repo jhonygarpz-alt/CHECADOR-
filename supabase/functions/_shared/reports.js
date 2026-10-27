@@ -1,11 +1,10 @@
-import { DEFAULT_TZ, MAX_SHIFT_HOURS } from './attendance.js';
 import { addDays, eachDay, hhmmToMinutes, minutesToHHMM, weekdayOf, zonedParts } from './time.js';
 
 /**
  * Empareja entradas y salidas válidas (ordenadas por usuario y hora) en jornadas.
  * Una jornada pertenece a la fecha local de su entrada, aunque la salida caiga en el día siguiente.
  */
-export function pairShifts(records) {
+export function pairShifts(records, maxShiftHours = 16) {
   const shifts = [];
   let open = null;
   const close = () => { if (open) shifts.push(open); open = null; };
@@ -16,10 +15,10 @@ export function pairShifts(records) {
       close();
       open = {
         userId: r.user_id, date: r.local_date, timezone: r.timezone, location: r.location_name ?? null,
-        inTs: r.ts, inTime: r.local_time.slice(0, 5), late: !!r.late, outTs: null, outTime: null, minutes: null,
+        inTs: new Date(r.ts).toISOString(), inTime: r.local_time.slice(0, 5), late: !!r.late, outTs: null, outTime: null, minutes: null,
       };
-    } else if (open && new Date(r.ts) - new Date(open.inTs) <= MAX_SHIFT_HOURS * 3600_000) {
-      open.outTs = r.ts;
+    } else if (open && new Date(r.ts) - new Date(open.inTs) <= maxShiftHours * 3600_000) {
+      open.outTs = new Date(r.ts).toISOString();
       open.outTime = r.local_time.slice(0, 5);
       open.minutes = Math.round((new Date(r.ts) - new Date(open.inTs)) / 60_000);
       close();
@@ -29,29 +28,30 @@ export function pairShifts(records) {
   return shifts;
 }
 
-function employees(db, { userId, department, locationId } = {}) {
-  let sql = `SELECT u.*, COALESCE(l.timezone, ?) AS tz FROM users u LEFT JOIN locations l ON l.id = u.location_id
-    WHERE u.active = 1 AND u.role = 'employee'`;
-  const params = [DEFAULT_TZ];
-  if (userId) { sql += ' AND u.id = ?'; params.push(Number(userId)); }
-  if (department) { sql += ' AND u.department = ?'; params.push(department); }
-  if (locationId) { sql += ' AND u.location_id = ?'; params.push(Number(locationId)); }
-  return db.prepare(`${sql} ORDER BY u.name`).all(...params);
+function employees(sql, config, { userId, department, locationId } = {}) {
+  return sql`select u.*, coalesce(l.timezone, ${config.defaultTz}) as tz, (f.user_id is not null) as face_enrolled
+    from asiste.profiles u
+    left join asiste.locations l on l.id = u.location_id
+    left join asiste.face_templates f on f.user_id = u.id
+    where u.active and u.role = 'employee'
+      ${userId ? sql`and u.id = ${userId}` : sql``}
+      ${department ? sql`and u.department = ${department}` : sql``}
+      ${locationId ? sql`and u.location_id = ${Number(locationId)}` : sql``}
+    order by u.name`;
 }
 
-function validRecords(db, userIds, fromDate, toDate) {
+function validRecords(sql, userIds, fromDate, toDate) {
   if (userIds.length === 0) return [];
-  return db.prepare(`SELECT r.*, l.name AS location_name FROM records r LEFT JOIN locations l ON l.id = r.location_id
-    WHERE r.status = 'valid' AND r.local_date BETWEEN ? AND ?
-      AND r.user_id IN (${userIds.map(() => '?').join(',')})
-    ORDER BY r.user_id, r.ts, r.id`).all(fromDate, toDate, ...userIds);
+  return sql`select r.*, l.name as location_name from asiste.records r left join asiste.locations l on l.id = r.location_id
+    where r.status = 'valid' and r.local_date between ${fromDate} and ${toDate} and r.user_id = any(${userIds}::uuid[])
+    order by r.user_id, r.ts, r.id`;
 }
 
 /** Reporte de asistencia para el rango de fechas locales [start, end]. */
-export function buildReport(db, { start, end, userId, department, locationId, now = new Date() }) {
-  const staff = employees(db, { userId, department, locationId });
-  const records = validRecords(db, staff.map((u) => u.id), addDays(start, -1), addDays(end, 1));
-  const shifts = pairShifts(records).filter((s) => s.date >= start && s.date <= end);
+export async function buildReport(sql, config, { start, end, userId, department, locationId, now = new Date() }) {
+  const staff = await employees(sql, config, { userId, department, locationId });
+  const records = await validRecords(sql, staff.map((u) => u.id), addDays(start, -1), addDays(end, 1));
+  const shifts = pairShifts(records, config.maxShiftHours).filter((s) => s.date >= start && s.date <= end);
   const days = eachDay(start, end);
 
   const byUser = new Map(staff.map((u) => [u.id, []]));
@@ -107,10 +107,10 @@ export function buildReport(db, { start, end, userId, department, locationId, no
 }
 
 /** Panel en tiempo real: estado del día de cada empleado en su propia zona horaria. */
-export function buildDashboard(db, now = new Date()) {
-  const staff = employees(db);
+export async function buildDashboard(sql, config, now = new Date()) {
+  const staff = await employees(sql, config);
   const since = addDays(new Date(now.getTime() - 86400_000).toISOString().slice(0, 10), -1);
-  const records = validRecords(db, staff.map((u) => u.id), since, '9999-12-31');
+  const records = await validRecords(sql, staff.map((u) => u.id), since, '9999-12-31');
   const byUser = new Map(staff.map((u) => [u.id, []]));
   for (const r of records) byUser.get(r.user_id)?.push(r);
 
@@ -121,20 +121,20 @@ export function buildDashboard(db, now = new Date()) {
     const firstIn = todays.find((r) => r.type === 'in');
     const lastOut = todays.findLast((r) => r.type === 'out');
     const last = own.at(-1);
-    const inside = last?.type === 'in' && now - new Date(last.ts) <= MAX_SHIFT_HOURS * 3600_000;
+    const inside = last?.type === 'in' && now - new Date(last.ts) <= config.maxShiftHours * 3600_000;
     const workday = u.work_days.split(',').map(Number).includes(weekdayOf(today));
     return {
       id: u.id, name: u.name, department: u.department, timezone: u.tz, today, workday,
       present: !!firstIn, inside, late: !!firstIn?.late,
       firstIn: firstIn?.local_time.slice(0, 5) ?? null, lastOut: lastOut?.local_time.slice(0, 5) ?? null,
-      faceEnrolled: !!u.face_descriptor,
+      faceEnrolled: u.face_enrolled,
     };
   });
 
-  const latest = db.prepare(`SELECT r.id, r.user_id, u.name AS user_name, r.type, r.ts, r.local_date, r.local_time,
-      r.timezone, l.name AS location_name, r.status, r.reason, r.late, (r.snapshot IS NOT NULL) AS has_snapshot
-    FROM records r JOIN users u ON u.id = r.user_id LEFT JOIN locations l ON l.id = r.location_id
-    ORDER BY r.ts DESC, r.id DESC LIMIT 15`).all();
+  const latest = await sql`select r.id, r.user_id, p.name as user_name, r.type, r.ts, r.local_date, r.local_time,
+      r.timezone, l.name as location_name, r.status, r.reason, r.late, (r.snapshot_path is not null) as has_snapshot
+    from asiste.records r join asiste.profiles p on p.id = r.user_id left join asiste.locations l on l.id = r.location_id
+    order by r.ts desc, r.id desc limit 15`;
 
   const present = people.filter((p) => p.present).length;
   const expected = people.filter((p) => p.workday || p.present).length;

@@ -1,8 +1,8 @@
 // Service worker mínimo: permite instalar la app (PWA) y sirve la interfaz sin conexión.
-// Las llamadas a /api nunca se cachean: los registros siempre requieren conexión con el servidor.
-const CACHE = 'asisteapp-v1';
+// Las llamadas a Supabase (otro dominio) nunca se cachean: los registros siempre requieren conexión.
+const CACHE = 'asisteapp-v2';
 const SHELL = ['/', '/index.html', '/css/app.css', '/js/main.js', '/js/api.js', '/js/ui.js', '/js/face.js',
-  '/js/employee.js', '/js/admin.js', '/icon.svg', '/manifest.webmanifest'];
+  '/js/employee.js', '/js/admin.js', '/config.js', '/icon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
@@ -16,7 +16,7 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/')) return;
+  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   // Red primero para obtener siempre la versión más reciente; caché como respaldo.
   e.respondWith(fetch(e.request).then((res) => {
     const copy = res.clone();

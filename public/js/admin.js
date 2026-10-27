@@ -1,4 +1,4 @@
-import { api, blobUrl, clock, download, live, session } from './api.js';
+import { api, clock, download, live, session } from './api.js';
 import {
   $, $$, avatar, confirmDialog, esc, fmtDuration, fmtShortDate, formData, icon, localDate, mapLink, modal, toast, tzLabel,
 } from './ui.js';
@@ -79,15 +79,19 @@ export function dashboardView(root) {
           <div class="people-times">${p.firstIn ? `<span class="${p.late ? 'late' : ''}">${p.firstIn}</span>` : ''}${p.lastOut ? ` – ${p.lastOut}` : ''}</div>
           <span class="pill pill-${cls}">${text}</span>${p.faceEnrolled ? '' : `<span class="pill pill-warn" title="Sin rostro registrado">${icon('face')}</span>`}</li>`;
       }).join('') : '<li class="empty">No hay empleados. <a href="#/admin/personal">Agrega personal</a></li>';
+      return d.latest;
     } catch (err) {
       toast(err.message, 'error');
     }
   }
 
   const off = live.on('record', (r) => {
-    toast(`${r.user_name}: ${r.type === 'in' ? 'entrada' : 'salida'} ${r.status === 'valid' ? 'registrada' : 'rechazada'}`, r.status === 'valid' ? 'success' : 'error');
     clearTimeout(pending);
-    pending = setTimeout(() => load(r.id), 300);
+    pending = setTimeout(async () => {
+      const latest = await load(r.id);
+      const name = latest?.find((x) => x.id === r.id)?.user_name ?? 'Empleado';
+      toast(`${name}: ${r.type === 'in' ? 'entrada' : 'salida'} ${r.status === 'valid' ? 'registrada' : 'rechazada'}`, r.status === 'valid' ? 'success' : 'error');
+    }, 300);
   });
   const refresh = setInterval(load, 60_000); // cambia el día local de cada zona horaria
   load();
@@ -121,7 +125,7 @@ export function staffView(root) {
   body.addEventListener('click', async (e) => {
     const edit = e.target.closest('[data-edit]');
     const reset = e.target.closest('[data-reset]');
-    if (edit) openForm(users.find((u) => u.id === Number(edit.dataset.edit)));
+    if (edit) openForm(users.find((u) => u.id === edit.dataset.edit));
     if (reset && await confirmDialog('El empleado deberá registrar su rostro de nuevo. ¿Continuar?')) {
       await api(`/api/admin/users/${reset.dataset.reset}/reset-face`, { method: 'POST' });
       toast('Rostro restablecido', 'success');
@@ -212,9 +216,12 @@ export function recordsView(root) {
   body.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-photo]');
     if (!b) return;
-    const url = await blobUrl(`/api/admin/records/${b.dataset.photo}/snapshot`);
-    const m = modal('Foto del registro', `<img class="snapshot" src="${url}" alt="Foto tomada al registrar">`);
-    m.el.addEventListener('click', () => setTimeout(() => !m.el.isConnected && URL.revokeObjectURL(url)));
+    try {
+      const { url } = await api(`/api/admin/records/${b.dataset.photo}/snapshot`);
+      modal('Foto del registro', `<img class="snapshot" src="${esc(url)}" alt="Foto tomada al registrar">`);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
   });
   const off = live.on('record', () => load());
   load();

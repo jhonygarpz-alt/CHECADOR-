@@ -2,7 +2,6 @@
 // Dos rostros de la misma persona suelen quedar a una distancia euclidiana < 0.5.
 
 export const DESCRIPTOR_LENGTH = 128;
-export const FACE_THRESHOLD = Number(process.env.FACE_THRESHOLD || 0.5);
 
 export function isValidDescriptor(d) {
   return Array.isArray(d) && d.length === DESCRIPTOR_LENGTH && d.every((x) => typeof x === 'number' && Number.isFinite(x));

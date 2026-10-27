@@ -1,21 +1,22 @@
-const TOKEN_KEY = 'asisteapp.token';
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/+esm';
 
-function storage(fn) {
-  try { return fn(localStorage); } catch { return null; }
-}
+const cfg = window.ASISTE_CONFIG ?? {};
+export const configured = Boolean(cfg.supabaseUrl && cfg.supabaseKey);
+
+export const supabase = configured
+  ? createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true } })
+  : null;
+
+const API_BASE = configured ? `${cfg.supabaseUrl.replace(/\/$/, '')}/functions/v1/api` : '';
 
 export const session = {
-  token: storage((s) => s.getItem(TOKEN_KEY)),
   user: null,
-  set(token, user) {
-    this.token = token;
-    this.user = user;
-    storage((s) => s.setItem(TOKEN_KEY, token));
+  async token() {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
   },
-  clear() {
-    this.token = null;
-    this.user = null;
-    storage((s) => s.removeItem(TOKEN_KEY));
+  async hasSession() {
+    return Boolean(await this.token());
   },
 };
 
@@ -27,17 +28,20 @@ export class ApiError extends Error {
   }
 }
 
+/** Llama a la Edge Function `api`. Las rutas se escriben como '/api/...'. */
 export async function api(path, { method = 'GET', body, raw = false } = {}) {
-  const res = await fetch(path, {
+  const token = await session.token();
+  const res = await fetch(API_BASE + path.replace(/^\/api/, ''), {
     method,
     headers: {
+      apikey: cfg.supabaseKey,
       ...(body !== undefined && { 'Content-Type': 'application/json' }),
-      ...(session.token && { Authorization: `Bearer ${session.token}` }),
+      ...(token && { Authorization: `Bearer ${token}` }),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401 && session.token && path !== '/api/auth/login') {
-    session.clear();
+  if (res.status === 401 && token) {
+    await signOut();
     location.hash = '#/login';
   }
   if (raw && res.ok) return res;
@@ -46,7 +50,38 @@ export async function api(path, { method = 'GET', body, raw = false } = {}) {
   return data;
 }
 
-/** Descarga un archivo protegido (CSV, foto) usando la sesión actual. */
+// ---------- Autenticación (Supabase Auth) ----------
+
+export async function signIn(email, password) {
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    throw new Error(/invalid login/i.test(error.message) ? 'Correo o contraseña incorrectos' : error.message);
+  }
+  try {
+    const { user } = await api('/api/me');
+    session.user = user;
+    return user;
+  } catch (err) {
+    await supabase.auth.signOut();
+    throw err;
+  }
+}
+
+export async function signOut() {
+  live.stop();
+  session.user = null;
+  await supabase.auth.signOut().catch(() => {});
+}
+
+export async function changePassword(current, next) {
+  if (typeof next !== 'string' || next.length < 8) throw new Error('La nueva contraseña debe tener al menos 8 caracteres');
+  const { error: authError } = await supabase.auth.signInWithPassword({ email: session.user.email, password: current });
+  if (authError) throw new Error('La contraseña actual no es correcta');
+  const { error } = await supabase.auth.updateUser({ password: next });
+  if (error) throw new Error(error.message);
+}
+
+/** Descarga un archivo protegido (CSV) usando la sesión actual. */
 export async function download(path, filename) {
   const res = await api(path, { raw: true });
   const url = URL.createObjectURL(await res.blob());
@@ -57,17 +92,13 @@ export async function download(path, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-export async function blobUrl(path) {
-  const res = await api(path, { raw: true });
-  return URL.createObjectURL(await res.blob());
-}
-
 /**
  * Reloj sincronizado con el servidor: la hora mostrada no depende del reloj del dispositivo,
  * que puede estar mal configurado o manipulado.
  */
 export const clock = {
   offset: 0,
+  timer: null,
   now() { return new Date(Date.now() + this.offset); },
   async sync() {
     try {
@@ -76,31 +107,28 @@ export const clock = {
       const t1 = Date.now();
       this.offset = Date.parse(now) - (t0 + t1) / 2;
     } catch { /* se usa el reloj local */ }
+    this.timer ??= setInterval(() => this.sync(), 5 * 60_000);
   },
 };
 
-/** Canal de eventos en tiempo real (SSE) compartido por toda la app. */
+/**
+ * Registros en tiempo real (Supabase Realtime). La seguridad por fila (RLS) hace que los
+ * administradores reciban todos los registros y cada empleado solo los suyos.
+ */
 export const live = {
-  source: null,
+  channel: null,
   listeners: new Map(),
   connected: false,
-  start() {
-    if (this.source || !session.token) return;
-    const es = new EventSource(`/api/stream?token=${encodeURIComponent(session.token)}`);
-    this.source = es;
-    es.onopen = () => this.setConnected(true);
-    es.onerror = () => this.setConnected(false);
-    for (const type of ['record', 'user', 'tick', 'hello']) {
-      es.addEventListener(type, (e) => {
-        const data = JSON.parse(e.data);
-        if (data.now) clock.offset = Date.parse(data.now) - Date.now();
-        this.emit(type, data);
-      });
-    }
+  async start() {
+    if (this.channel || !configured) return;
+    await supabase.realtime.setAuth();
+    this.channel = supabase.channel('asiste-records')
+      .on('postgres_changes', { event: 'INSERT', schema: 'asiste', table: 'records' }, (p) => this.emit('record', p.new))
+      .subscribe((status) => this.setConnected(status === 'SUBSCRIBED'));
   },
   stop() {
-    this.source?.close();
-    this.source = null;
+    if (this.channel) supabase.removeChannel(this.channel);
+    this.channel = null;
     this.setConnected(false);
   },
   setConnected(v) {
@@ -116,3 +144,10 @@ export const live = {
     for (const fn of this.listeners.get(type) ?? []) fn(data);
   },
 };
+
+if (configured) {
+  // Mantiene el token de Realtime al día cuando Supabase renueva la sesión.
+  supabase.auth.onAuthStateChange((event, s) => {
+    if (event === 'TOKEN_REFRESHED' && s) supabase.realtime.setAuth(s.access_token);
+  });
+}

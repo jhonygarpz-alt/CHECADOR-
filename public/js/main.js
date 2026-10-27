@@ -1,4 +1,4 @@
-import { api, clock, live, session } from './api.js';
+import { api, clock, configured, live, session, signOut } from './api.js';
 import { checkView, enrollView, historyView, homeView, landingView, loginView, profileView } from './employee.js';
 import { dashboardView, locationsView, recordsView, reportsView, staffView } from './admin.js';
 
@@ -20,7 +20,7 @@ const routes = {
   'admin/ubicaciones': locationsView,
 };
 
-async function render() {
+function render() {
   cleanup?.();
   cleanup = null;
   const path = location.hash.replace(/^#\/?/, '').split('?')[0].replace(/\/$/, '');
@@ -32,7 +32,6 @@ async function render() {
   if (path === 'login') { location.hash = '#/'; return; }
   if (path.startsWith('admin') && session.user.role !== 'admin') { location.hash = '#/'; return; }
   const view = routes[path] ?? homeView;
-  document.body.classList.toggle('is-admin-view', path.startsWith('admin'));
   window.scrollTo(0, 0);
   cleanup = view(app) ?? null;
 }
@@ -46,30 +45,29 @@ async function start(user) {
 }
 
 async function logout() {
-  try { await api('/api/auth/logout', { method: 'POST' }); } catch { /* sesión ya inválida */ }
-  live.stop();
-  session.clear();
+  await signOut();
   location.hash = '#/';
   render();
 }
 
 live.on('status', (on) => document.body.classList.toggle('live-on', on));
-live.on('user', async () => {
-  const { user } = await api('/api/me');
-  session.user = user;
-});
 
 window.addEventListener('hashchange', render);
 
 (async () => {
-  if (session.token) {
+  if (!configured) {
+    app.innerHTML = `<main class="phone phone-plain"><h1>Configuración pendiente</h1>
+      <p class="muted">Define la URL y la llave pública de Supabase en <code>config.js</code>.</p></main>`;
+    return;
+  }
+  if (await session.hasSession()) {
     try {
       const { user } = await api('/api/me');
       session.user = user;
       live.start();
       await clock.sync();
     } catch {
-      session.clear();
+      await signOut();
     }
   }
   render();

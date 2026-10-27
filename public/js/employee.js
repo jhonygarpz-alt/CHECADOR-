@@ -1,4 +1,4 @@
-import { api, clock, live, session } from './api.js';
+import { api, changePassword, clock, live, session, signIn } from './api.js';
 import { averageDescriptor, captureSamples, getPosition, loadFaceApi, snapshot, startCamera, stopCamera } from './face.js';
 import {
   $, avatar, esc, fmtDay, fmtDayMonth, fmtDuration, fmtLongDate, fmtMonth, fmtTime, formData, icon,
@@ -50,9 +50,8 @@ export function loginView(root, { onLogin }) {
     btn.disabled = true;
     $('.form-error', form).textContent = '';
     try {
-      const { token, user } = await api('/api/auth/login', { method: 'POST', body: formData(form) });
-      session.set(token, user);
-      onLogin(user);
+      const { email, password } = formData(form);
+      onLogin(await signIn(email.trim(), password));
     } catch (err) {
       $('.form-error', form).textContent = err.message;
     } finally {
@@ -423,7 +422,8 @@ export function profileView(root, { onLogout }) {
       $('form', m.el).onsubmit = async (ev) => {
         ev.preventDefault();
         try {
-          await api('/api/me/password', { method: 'PUT', body: formData(ev.target) });
+          const { current, next } = formData(ev.target);
+          await changePassword(current, next);
           m.close();
           toast('Contraseña actualizada', 'success');
         } catch (err) {
