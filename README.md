@@ -47,7 +47,7 @@ npx supabase login
 npx supabase link --project-ref <ref-del-proyecto>
 
 npx supabase db push                                   # crea el esquema asiste, RLS, Realtime y el bucket
-npx supabase secrets set ADMIN_EMAILS=tu-correo@empresa.com DEFAULT_TZ=America/Mexico_City
+npx supabase secrets set ADMIN_EMAILS=jhonygarpz@gmail.com DEFAULT_TZ=America/Mexico_City
 npx supabase functions deploy api --no-verify-jwt      # la función valida el token por sí misma
 ```
 
@@ -59,7 +59,9 @@ En el panel de Supabase:
    administrador desde la app.
 
 Después llena `public/config.js` con la URL del proyecto y la llave **publicable (anon)** (Project Settings → API) y
-publica la carpeta `public/` en cualquier hosting estático con HTTPS (Netlify, Vercel, Cloudflare Pages, GitHub Pages).
+publica la carpeta `public/` en un hosting estático con HTTPS. Con **Vercel**: *Add New → Project*, importa este
+repositorio de GitHub y presiona *Deploy* (el archivo `vercel.json` ya indica que se publica `public/` sin compilación).
+Cada push a la rama de producción vuelve a publicar la app.
 
 > La cámara y el GPS del navegador solo funcionan en **HTTPS** (o `localhost`).
 
