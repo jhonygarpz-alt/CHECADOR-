@@ -161,7 +161,7 @@ const csvCell = (v) => {
   const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   return /[",\n;]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 };
-const toCsv = (rows) => `﻿${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
+const toCsv = (rows) => `\uFEFF${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
 const hours = (min) => (min === null ? '' : (min / 60).toFixed(2));
 
 export function reportToCsv(report, kind = 'detail') {
