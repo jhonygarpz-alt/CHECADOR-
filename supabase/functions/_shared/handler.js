@@ -10,6 +10,7 @@
 import { HttpError, listRecords, openShift, recordView, registerAttendance, userTimezone } from './attendance.js';
 import { averageDescriptor, isValidDescriptor } from './face.js';
 import { isLatitude, isLongitude } from './geo.js';
+import { decideOvertime, listOvertime, withOvertime } from './overtime.js';
 import { buildDashboard, buildReport, pairShifts, reportToCsv } from './reports.js';
 import { addDays, isDateString, isHHMM, isValidTimeZone, periodRange, zonedParts } from './time.js';
 
@@ -111,7 +112,8 @@ export function createHandler({ sql, auth, storage, config }) {
       left join asiste.locations l on l.id = r.location_id
       where r.user_id = ${user.id} and r.status = 'valid' and r.local_date between ${start} and ${addDays(end, 1)}
       order by r.ts, r.id`;
-    return json({ month, shifts: pairShifts(records, config.maxShiftHours).filter((s) => s.date <= end).reverse() });
+    const shifts = pairShifts(records, config.maxShiftHours).filter((s) => s.date <= end);
+    return json({ month, shifts: (await withOvertime(sql, config, shifts, new Map([[user.id, user]]))).reverse() });
   });
 
   route('POST', '/attendance', USER, async ({ user, body, req }) => {
@@ -206,6 +208,25 @@ export function createHandler({ sql, auth, storage, config }) {
     const [row] = await sql`select snapshot_path from asiste.records where id = ${Number(params.id) || 0}`;
     if (!row?.snapshot_path) throw new HttpError(404, 'Sin foto');
     return json({ url: await storage.signedUrl(row.snapshot_path, 300) });
+  });
+
+  // Horas extras: solo los administradores las consultan y las autorizan o rechazan con observaciones.
+  route('GET', '/admin/overtime', ADMIN, async ({ query }) => {
+    const from = query.get('from');
+    const to = query.get('to');
+    const userId = query.get('userId');
+    const status = query.get('status') || 'pending';
+    if (!isDateString(from) || !isDateString(to) || from > to) throw new HttpError(400, 'Rango de fechas no válido');
+    if ((Date.parse(to) - Date.parse(from)) / 86400_000 > 366) throw new HttpError(400, 'El rango máximo es de un año');
+    if (userId && !UUID.test(userId)) throw new HttpError(400, 'Empleado no válido');
+    if (!['pending', 'approved', 'rejected', 'all'].includes(status)) throw new HttpError(400, 'Estado no válido');
+    return json({ items: await listOvertime(sql, config, { from, to, userId, status }) });
+  });
+
+  route('POST', '/admin/overtime/:id', ADMIN, async ({ user, params, body }) => {
+    const id = Number(params.id);
+    if (!Number.isInteger(id) || id <= 0) throw new HttpError(404, 'Jornada no encontrada');
+    return json({ item: await decideOvertime(sql, config, user, id, body) });
   });
 
   route('GET', '/admin/departments', ADMIN, async () => json({

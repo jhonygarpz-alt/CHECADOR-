@@ -360,12 +360,16 @@ export function historyView(root) {
       $('[data-stats]', el).innerHTML = `
         <div><b>${new Set(shifts.map((s) => s.date)).size}</b><span>Días</span></div>
         <div><b>${(total / 60).toFixed(1)}</b><span>Horas</span></div>
-        <div><b>${shifts.filter((s) => s.late).length}</b><span>Retardos</span></div>`;
+        <div><b>${shifts.filter((s) => s.late).length}</b><span>Retardos</span></div>
+        <div><b>${(shifts.reduce((a, s) => a + (s.overtime?.approvedMinutes ?? 0), 0) / 60).toFixed(1)}</b><span>H. extra aut.</span></div>`;
       $('[data-list]', el).innerHTML = shifts.length ? shifts.map((s) => `<li>
         <div class="h-date"><b>${fmtDay(s.date)}</b><span>${fmtDayMonth(s.date)}</span></div>
         <div class="h-col"><span class="in">Entrada</span><b class="${s.late ? 'late' : ''}">${s.inTime}</b></div>
         <div class="h-col"><span>Salida</span><b>${s.outTime ?? '--:--'}</b></div>
         <div class="h-total ${s.minutes == null ? 'open' : ''}"><i></i>${s.minutes == null ? 'Sin salida' : fmtDuration(s.minutes)}</div>
+        ${s.overtime ? `<div class="h-extra ${s.overtime.status}">+${fmtDuration(s.overtimeMinutes)} extra ·
+          ${{ pending: 'Pendiente de autorizar', approved: `Autorizadas ${fmtDuration(s.overtime.approvedMinutes)}`, rejected: 'Rechazadas' }[s.overtime.status]}
+          ${s.overtime.notes ? `<small>${esc(s.overtime.notes)}</small>` : ''}</div>` : ''}
       </li>`).join('') : '<li class="empty">Sin registros este mes</li>';
     } catch (err) {
       toast(err.message, 'error');

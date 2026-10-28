@@ -8,6 +8,7 @@ export function loadConfig(env = {}) {
     faceThreshold: Number(env.FACE_THRESHOLD || 0.5),
     maxGpsAccuracy: Number(env.MAX_GPS_ACCURACY_M || 100),
     maxShiftHours: Number(env.MAX_SHIFT_HOURS || 16),
+    minOvertime: Number(env.MIN_OVERTIME_MINUTES || 15),
     adminEmails: String(env.ADMIN_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
   };
 }

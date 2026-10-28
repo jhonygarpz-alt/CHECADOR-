@@ -13,6 +13,7 @@ Funciona sobre **Supabase**.
 | Jornada del día y tiempo en oficina | Ubicaciones con radio permitido y zona horaria IANA |
 | Historial mensual con horas y retardos | Auditoría de registros (incluye intentos rechazados y foto) |
 | Enrolamiento facial guiado | Reportes diario / semanal / mensual / personalizado, Excel (CSV) e impresión/PDF |
+| Sus horas extras y si fueron autorizadas | Autorización de horas extras con observaciones obligatorias |
 
 ## Arquitectura
 
@@ -34,6 +35,10 @@ Navegador (PWA, carpeta public/)          Supabase
   calcula con la zona IANA de la ubicación: retardos, reportes y horario de verano son correctos en cada sucursal.
 - **Tiempo real.** Supabase Realtime sobre `asiste.records`; la seguridad por fila (RLS) hace que el administrador
   reciba todos los registros y cada empleado solo los suyos.
+- **Horas extras.** Se calculan solas: tiempo trabajado menos la jornada programada del empleado (a partir de
+  `MIN_OVERTIME_MINUTES`, 15 por defecto). Quedan *pendientes* hasta que un **administrador** las autoriza (todas o
+  solo parte de los minutos) o las rechaza, siempre escribiendo el motivo en **observaciones**. Se guarda quién decidió
+  y cuándo; los empleados solo pueden consultarlas. Aparecen en el historial del empleado, en los reportes y en el Excel.
 - **Aislamiento.** Todo vive en el esquema `asiste` y el bucket `asiste-snapshots`, así que no toca otras tablas que ya
   tenga el proyecto.
 
@@ -82,6 +87,7 @@ Cada push a la rama de producción vuelve a publicar la app.
 | `FACE_THRESHOLD` | `0.5` | Distancia máxima para aceptar un rostro (menor = más estricto) |
 | `MAX_GPS_ACCURACY_M` | `100` | Precisión GPS mínima requerida, en metros |
 | `MAX_SHIFT_HOURS` | `16` | Duración máxima de una jornada para emparejar entrada y salida |
+| `MIN_OVERTIME_MINUTES` | `15` | Minutos mínimos por encima de la jornada para considerarse horas extras |
 
 ## Desarrollo local
 
