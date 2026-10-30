@@ -25,7 +25,7 @@ que **cada cambio que se publica en Vercel llega a la app sin subir una versión
 la app se abre mostrando la barra de direcciones del navegador. Debe contener **dos** huellas SHA-256:
 
 1. La de la llave de carga (ya incluida): `3B:EF:C5:F5:...:58:E7:AF`.
-2. La de la **llave de firma de apps de Google Play**, que se obtiene después de subir el primer `.aab` en
+2. La de la **llave de firma de apps de Google Play** (ya incluida: `66:2D:3B:0E:...:1B:49:DC:D7`), que se obtiene después de subir el primer `.aab` en
    *Play Console → Prueba y publicación → Configuración → Integridad de la app → Firma de apps*. Agrégala al
    arreglo `sha256_cert_fingerprints` y vuelve a publicar en Vercel.
 
