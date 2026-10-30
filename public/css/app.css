@@ -59,6 +59,9 @@ button, input, select { font: inherit; color: inherit; }
   background: none; cursor: pointer; color: inherit; }
 .icon-btn:hover { background: rgba(0, 0, 0, .05); }
 .icon-btn:disabled { opacity: .3; cursor: default; }
+.icon-btn.warn { color: var(--warning); }
+.icon-btn.ok { color: var(--success); }
+.icon-btn.bad { color: var(--danger); }
 
 label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); font-weight: 500; }
 input, select, textarea { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px;

@@ -3,7 +3,7 @@
 //
 // Dependencias inyectadas:
 //   sql      → cliente postgres.js conectado a la base de datos
-//   auth     → { getUser(token), createUser({ email, password }), updateUser(id, { email?, password?, banned? }) }
+//   auth     → { getUser(token), createUser({ email, password }), updateUser(id, { email?, password?, banned? }), deleteUser(id) }
 //   storage  → { upload(path, bytes, contentType), remove(paths), signedUrl(path, seconds) }
 //   config   → ver loadConfig()
 
@@ -17,7 +17,7 @@ import { addDays, isDateString, isHHMM, isValidTimeZone, periodRange, zonedParts
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-company-id',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Expose-Headers': 'content-disposition',
 };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -174,6 +174,7 @@ export function createHandler({ sql, auth, storage, config }) {
     const current = await profileInCompany(params.id, companyId);
     const d = await validateUser({ ...(await publicUser(current)), ...body }, { requirePassword: false, companyId });
     if (current.role === 'superadmin') d.role = 'superadmin'; // el superadministrador no se cambia desde una empresa
+    if (current.role === 'superadmin' && !d.active) throw new HttpError(400, 'El superadministrador no se puede desactivar');
     if (current.id === user.id && (!isAdminRole(d.role) || !d.active)) {
       throw new HttpError(400, 'No puedes quitarte el rol de administrador ni desactivarte');
     }
@@ -191,6 +192,25 @@ export function createHandler({ sql, auth, storage, config }) {
         schedule_end = ${d.schedule_end}, tolerance_min = ${d.tolerance_min}, work_days = ${d.work_days}, active = ${d.active}
       where id = ${current.id}`;
     return json({ user: await publicUser(await loadProfile(current.id)) });
+  });
+
+  // Elimina al usuario por completo: su cuenta, sus registros, sus fotos y su rostro registrado.
+  route('DELETE', '/admin/users/:id', ADMIN, async ({ user, params, companyId }) => {
+    const target = await profileInCompany(params.id, companyId);
+    if (target.id === user.id) throw new HttpError(400, 'No puedes eliminar tu propia cuenta');
+    if (target.role === 'superadmin') throw new HttpError(400, 'El superadministrador no se puede eliminar');
+    const photos = await sql`select snapshot_path from asiste.records where user_id = ${target.id} and snapshot_path is not null`;
+    await auth.deleteUser(target.id);
+    await sql`delete from asiste.profiles where id = ${target.id}`; // por si la cuenta de Auth no lo eliminó en cascada
+    const paths = photos.map((r) => r.snapshot_path);
+    for (let i = 0; i < paths.length; i += 100) {
+      try {
+        await storage.remove(paths.slice(i, i + 100));
+      } catch (err) {
+        console.error('No se pudieron borrar algunas fotos', err);
+      }
+    }
+    return json({ ok: true });
   });
 
   route('POST', '/admin/users/:id/reset-face', ADMIN, async ({ params, companyId }) => {
