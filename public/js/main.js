@@ -1,6 +1,6 @@
 import { api, clock, configured, live, session, signOut } from './api.js';
 import { checkView, enrollView, historyView, homeView, landingView, loginView, profileView } from './employee.js';
-import { dashboardView, locationsView, recordsView, reportsView, staffView } from './admin.js';
+import { dashboardView, locationsView, overtimeView, recordsView, reportsView, staffView } from './admin.js';
 
 const app = document.getElementById('app');
 let cleanup = null;
@@ -16,6 +16,7 @@ const routes = {
   'admin/dashboard': dashboardView,
   'admin/personal': staffView,
   'admin/registros': recordsView,
+  'admin/horas-extras': overtimeView,
   'admin/reportes': reportsView,
   'admin/ubicaciones': locationsView,
 };

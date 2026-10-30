@@ -139,3 +139,65 @@ test('flujo completo en Supabase: alta, rostro, entrada, salida, tiempo real y r
   assert.ok(adminEvents.length >= 4, `eventos en tiempo real: ${adminEvents.length}`);
   assert.ok(adminEvents.some((e) => e.id === inId));
 });
+
+test('horas extras: solo administradores autorizan, con observaciones obligatorias', { skip: skip || !process.env.DB_URL }, async () => {
+  const { default: postgres } = await import('postgres');
+  const db = postgres(process.env.DB_URL, { max: 1 });
+  try {
+    const admin = await signIn(ADMIN);
+    const [loc] = await db`select id from asiste.locations order by id limit 1`;
+    const email = `extra.${stamp}@empresa.com`;
+    const created = await api(admin.token, 'POST', '/admin/users', {
+      name: 'Pedro Extra', email, password: 'secreta123', location_id: loc.id, schedule_start: '09:00', schedule_end: '18:00',
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const userId = created.body.user.id;
+
+    // Jornada de 10 h 30 min (09:00–19:30 en CDMX) hace dos días: 90 min de horas extras.
+    const day = new Date(Date.now() - 2 * 86400_000).toISOString().slice(0, 10);
+    const [{ id: inId }] = await db`insert into asiste.records (user_id, type, ts, local_date, local_time, timezone, location_id, status)
+      values (${userId}, 'in', ${`${day}T15:00:00Z`}, ${day}, '09:00:00', 'America/Mexico_City', ${loc.id}, 'valid') returning id`;
+    await db`insert into asiste.records (user_id, type, ts, local_date, local_time, timezone, location_id, status)
+      values (${userId}, 'out', ${`${day}T01:30:00Z`}::timestamptz + interval '1 day', ${day}, '19:30:00', 'America/Mexico_City', ${loc.id}, 'valid')`;
+
+    let r = await api(admin.token, 'GET', `/admin/overtime?from=${day}&to=${day}&userId=${userId}`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.items.length, 1);
+    assert.equal(r.body.items[0].overtimeMinutes, 90);
+    assert.equal(r.body.items[0].overtime.status, 'pending');
+
+    const pedro = await signIn({ email, password: 'secreta123' });
+    r = await api(pedro.token, 'POST', `/admin/overtime/${inId}`, { status: 'approved', notes: 'Me autorizo solo' });
+    assert.equal(r.status, 403, 'un empleado no puede autorizar');
+
+    r = await api(admin.token, 'POST', `/admin/overtime/${inId}`, { status: 'approved', notes: '' });
+    assert.equal(r.status, 400, 'las observaciones son obligatorias');
+    r = await api(admin.token, 'POST', `/admin/overtime/${inId}`, { status: 'approved', approved_minutes: 120, notes: 'Cierre de mes' });
+    assert.equal(r.status, 400, 'no se pueden autorizar más minutos de los trabajados');
+
+    r = await api(admin.token, 'POST', `/admin/overtime/${inId}`, { status: 'approved', approved_minutes: 60, notes: 'Cierre de mes autorizado por gerencia' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.item.overtime.status, 'approved');
+    assert.equal(r.body.item.overtime.approvedMinutes, 60);
+    assert.equal(r.body.item.overtime.decidedBy, 'Administrador');
+
+    const mine = await api(pedro.token, 'GET', `/me/records?month=${day.slice(0, 7)}`);
+    const shift = mine.body.shifts.find((s) => s.inId === inId);
+    assert.equal(shift.overtime.notes, 'Cierre de mes autorizado por gerencia');
+
+    const rep = await api(admin.token, 'GET', `/admin/reports?period=custom&start=${day}&end=${day}&userId=${userId}`);
+    assert.equal(rep.body.summary[0].overtimeMinutes, 90);
+    assert.equal(rep.body.summary[0].approvedOvertimeMinutes, 60);
+    const csv = await api(admin.token, 'GET', `/admin/reports?period=custom&start=${day}&end=${day}&userId=${userId}&format=csv`);
+    assert.match(csv.body, /Autorizada/);
+    assert.match(csv.body, /Cierre de mes autorizado por gerencia/);
+
+    r = await api(admin.token, 'POST', `/admin/overtime/${inId}`, { status: 'rejected', notes: 'No fue solicitado por el jefe' });
+    assert.equal(r.body.item.overtime.status, 'rejected');
+    assert.equal(r.body.item.overtime.approvedMinutes, 0);
+    r = await api(admin.token, 'GET', `/admin/overtime?from=${day}&to=${day}&userId=${userId}&status=pending`);
+    assert.equal(r.body.items.length, 0);
+  } finally {
+    await db.end();
+  }
+});

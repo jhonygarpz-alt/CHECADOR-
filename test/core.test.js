@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { addDays, periodRange, zonedParts } from '../supabase/functions/_shared/time.js';
 import { distanceMeters } from '../supabase/functions/_shared/geo.js';
 import { averageDescriptor, euclideanDistance, isValidDescriptor } from '../supabase/functions/_shared/face.js';
-import { pairShifts } from '../supabase/functions/_shared/reports.js';
+import { pairShifts } from '../supabase/functions/_shared/shifts.js';
+import { overtimeMinutes, scheduledMinutes } from '../supabase/functions/_shared/overtime.js';
 
 test('zonedParts usa la zona horaria real de cada ubicación', () => {
   const instant = new Date('2025-03-24T14:42:00Z');
@@ -54,4 +55,16 @@ test('pairShifts empareja entradas y salidas, incluidas jornadas nocturnas', () 
   assert.deepEqual([shifts[0].date, shifts[0].minutes], ['2025-03-24', 480]);
   assert.equal(shifts[1].outTs, null); // entrada sin salida
   assert.deepEqual([shifts[2].userId, shifts[2].minutes], [2, 510]);
+});
+
+test('horas extras: tiempo trabajado por encima de la jornada programada', () => {
+  const config = { minOvertime: 15 };
+  const office = { schedule_start: '09:00', schedule_end: '18:00' };
+  const night = { schedule_start: '22:00', schedule_end: '06:00' };
+  assert.equal(scheduledMinutes(office), 540);
+  assert.equal(scheduledMinutes(night), 480);
+  assert.equal(overtimeMinutes({ minutes: 540 + 95 }, office, config), 95);
+  assert.equal(overtimeMinutes({ minutes: 540 + 10 }, office, config), 0, 'menos del mínimo no cuenta');
+  assert.equal(overtimeMinutes({ minutes: 500 }, office, config), 0);
+  assert.equal(overtimeMinutes({ minutes: null }, office, config), 0, 'jornada sin salida');
 });

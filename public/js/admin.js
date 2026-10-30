@@ -7,6 +7,7 @@ const SECTIONS = [
   ['dashboard', 'grid', 'Dashboard'],
   ['personal', 'users', 'Personal'],
   ['registros', 'list', 'Registros'],
+  ['horas-extras', 'clock', 'Horas extras'],
   ['reportes', 'report', 'Reportes'],
   ['ubicaciones', 'pin', 'Ubicaciones'],
 ];
@@ -228,6 +229,120 @@ export function recordsView(root) {
   return off;
 }
 
+// ---------------- Horas extras ----------------
+
+const OVERTIME = {
+  pending: ['badge-warn', 'alert', 'Pendiente'],
+  approved: ['badge-ok', 'check', 'Autorizada'],
+  rejected: ['badge-bad', 'x', 'Rechazada'],
+};
+export const overtimeBadge = (o) => {
+  const [cls, ic, label] = OVERTIME[o.status];
+  return `<span class="badge ${cls}">${icon(ic)}${label}</span>`;
+};
+
+export function overtimeView(root) {
+  const body = layout(root, 'horas-extras', 'Horas extras');
+  const today = localDate(clock.now(), session.user.timezone);
+  body.innerHTML = `<form class="filters panel">
+      <label>Desde<input type="date" name="from" value="${today.slice(0, 8)}01"></label>
+      <label>Hasta<input type="date" name="to" value="${today}"></label>
+      <label>Estado<select name="status">
+        <option value="pending">Pendientes</option><option value="approved">Autorizadas</option>
+        <option value="rejected">Rechazadas</option><option value="all">Todas</option></select></label>
+      <label>Empleado<select name="userId"><option value="">Todos</option></select></label>
+      <button class="btn btn-primary">Filtrar</button>
+    </form>
+    <p class="muted small">Se generan cuando el tiempo trabajado supera la jornada programada del empleado.
+      Solo un administrador puede autorizarlas o rechazarlas, indicando el motivo en observaciones.</p>
+    <section class="panel"><div class="table-wrap"><table class="table">
+      <thead><tr><th>Fecha</th><th>Empleado</th><th>Entrada – Salida</th><th class="num">Trabajado</th><th class="num">Jornada</th>
+        <th class="num">Horas extra</th><th>Estado</th><th>Observaciones</th><th></th></tr></thead>
+      <tbody data-rows></tbody></table></div></section>`;
+  const form = $('form', body);
+  let items = [];
+  api('/api/admin/users').then(({ users }) => {
+    form.userId.insertAdjacentHTML('beforeend', users.map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join(''));
+  });
+
+  async function load() {
+    const q = new URLSearchParams(Object.entries(formData(form)).filter(([, v]) => v));
+    try {
+      ({ items } = await api(`/api/admin/overtime?${q}`));
+      $('[data-rows]', body).innerHTML = items.length ? items.map((it, i) => `<tr>
+        <td>${fmtShortDate(it.date)}</td>
+        <td><b>${esc(it.name)}</b><br><small class="muted">${esc(it.department)}</small></td>
+        <td>${it.inTime} – ${it.outTime}</td>
+        <td class="num">${fmtDuration(it.minutes)}</td>
+        <td class="num">${fmtDuration(it.scheduledMinutes)}</td>
+        <td class="num"><b>${fmtDuration(it.overtimeMinutes)}</b>${it.overtime.status === 'approved' && it.overtime.approvedMinutes !== it.overtimeMinutes
+          ? `<br><small class="ok">Autorizadas: ${fmtDuration(it.overtime.approvedMinutes)}</small>` : ''}</td>
+        <td>${overtimeBadge(it.overtime)}</td>
+        <td class="notes">${it.overtime.notes ? `${esc(it.overtime.notes)}<br><small class="muted">${esc(it.overtime.decidedBy)} · ${
+          new Date(it.overtime.decidedAt).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</small>` : '<span class="muted">—</span>'}</td>
+        <td class="row-actions"><button class="btn btn-ghost btn-sm" data-review="${i}">${it.overtime.status === 'pending' ? 'Revisar' : 'Cambiar'}</button></td>
+      </tr>`).join('') : '<tr><td colspan="9" class="empty">No hay horas extras con este filtro</td></tr>';
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  function review(it) {
+    const o = it.overtime;
+    const m = modal('Revisar horas extras', `<form class="form">
+      <dl class="info-list">
+        <dt>Empleado</dt><dd>${esc(it.name)}</dd>
+        <dt>Fecha</dt><dd>${fmtShortDate(it.date)} · ${it.inTime} – ${it.outTime}</dd>
+        <dt>Trabajado</dt><dd>${fmtDuration(it.minutes)} (jornada de ${fmtDuration(it.scheduledMinutes)})</dd>
+        <dt>Horas extra</dt><dd><b>${fmtDuration(it.overtimeMinutes)}</b></dd>
+      </dl>
+      <label>Minutos a autorizar<input type="number" name="approved_minutes" min="1" max="${it.overtimeMinutes}"
+        value="${o.status === 'approved' ? o.approvedMinutes : it.overtimeMinutes}" required></label>
+      <label>Observaciones (motivo) *<textarea name="notes" rows="3" minlength="5" maxlength="1000" required
+        placeholder="Ej. Cierre de mes autorizado por la gerencia">${esc(o.notes ?? '')}</textarea></label>
+      <p class="form-error"></p>
+      <div class="form-actions">
+        <button type="button" class="btn btn-danger" data-decide="rejected">${icon('x')}Rechazar</button>
+        <button type="button" class="btn btn-primary" data-decide="approved">${icon('check')}Autorizar</button>
+      </div></form>`);
+    const f = $('form', m.el);
+    f.notes.addEventListener('input', () => { $('.form-error', f).textContent = ''; });
+    f.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-decide]');
+      if (!b) return;
+      const status = b.dataset.decide;
+      const notes = f.notes.value.trim();
+      if (notes.length < 5) {
+        $('.form-error', f).textContent = 'Escribe en observaciones el motivo (mínimo 5 caracteres).';
+        f.notes.focus();
+        return;
+      }
+      $$('[data-decide]', f).forEach((x) => { x.disabled = true; });
+      try {
+        await api(`/api/admin/overtime/${it.inId}`, {
+          method: 'POST',
+          body: { status, notes, ...(status === 'approved' && { approved_minutes: Number(f.approved_minutes.value) }) },
+        });
+        m.close();
+        toast(status === 'approved' ? 'Horas extras autorizadas' : 'Horas extras rechazadas', 'success');
+        load();
+      } catch (err) {
+        $('.form-error', f).textContent = err.message;
+        $$('[data-decide]', f).forEach((x) => { x.disabled = false; });
+      }
+    });
+  }
+
+  form.onsubmit = (e) => { e.preventDefault(); load(); };
+  body.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-review]');
+    if (b) review(items[Number(b.dataset.review)]);
+  });
+  const off = live.on('record', (r) => { if (r.type === 'out') load(); });
+  load();
+  return off;
+}
+
 // ---------------- Reportes ----------------
 
 export function reportsView(root) {
@@ -290,22 +405,29 @@ export function reportsView(root) {
         ${kpi('clock', 'teal', 'Horas trabajadas', (t.totalMinutes / 60).toFixed(1))}
         ${kpi('alert', 'amber', 'Retardos', t.lateCount)}
         ${kpi('x', 'red', 'Faltas', t.absences)}
+        ${kpi('clock', 'blue', 'Horas extra autorizadas', `${(t.approvedOvertimeMinutes / 60).toFixed(1)} <small>de ${(t.overtimeMinutes / 60).toFixed(1)}</small>`)}
       </div>
+      ${t.pendingOvertime ? `<p class="banner banner-warning no-print">${icon('alert')}<span>${t.pendingOvertime} jornada(s) con horas extras pendientes de revisión.
+        <a href="#/admin/horas-extras">Revisar</a></span></p>` : ''}
       ${report.series.length > 1 ? `<section class="panel"><div class="panel-head"><h2>Asistencias por día</h2></div>${barChart(report.series, t.employees)}</section>` : ''}
       <section class="panel"><div class="panel-head"><h2>Resumen por empleado</h2></div><div class="table-wrap"><table class="table">
-        <thead><tr><th>Empleado</th><th>Departamento</th><th>Horario</th><th class="num">Días</th><th class="num">Faltas</th><th class="num">Retardos</th><th class="num">Sin salida</th><th class="num">Horas</th><th class="num">Entrada prom.</th></tr></thead>
+        <thead><tr><th>Empleado</th><th>Departamento</th><th>Horario</th><th class="num">Días</th><th class="num">Faltas</th><th class="num">Retardos</th><th class="num">Sin salida</th><th class="num">Horas</th><th class="num">Entrada prom.</th><th class="num">H. extra</th><th class="num">Autorizadas</th></tr></thead>
         <tbody>${report.summary.map((s) => `<tr><td><b>${esc(s.name)}</b><br><small class="muted">${esc(tzLabel(s.timezone))}</small></td>
           <td>${esc(s.department)}</td><td>${s.schedule}</td><td class="num">${s.daysWorked}/${s.expectedDays}</td>
           <td class="num ${s.absences ? 'bad' : ''}" title="${s.absenceDates.map(fmtShortDate).join(', ')}">${s.absences}</td>
           <td class="num ${s.lateCount ? 'warn' : ''}">${s.lateCount}</td><td class="num">${s.incomplete}</td>
-          <td class="num">${(s.totalMinutes / 60).toFixed(1)}</td><td class="num">${s.averageIn ?? '—'}</td></tr>`).join('')
-          || '<tr><td colspan="9" class="empty">Sin empleados</td></tr>'}</tbody></table></div></section>
+          <td class="num">${(s.totalMinutes / 60).toFixed(1)}</td><td class="num">${s.averageIn ?? '—'}</td>
+          <td class="num">${(s.overtimeMinutes / 60).toFixed(1)}${s.pendingOvertime ? ` <small class="warn">(${s.pendingOvertime} pend.)</small>` : ''}</td>
+          <td class="num">${(s.approvedOvertimeMinutes / 60).toFixed(1)}</td></tr>`).join('')
+          || '<tr><td colspan="11" class="empty">Sin empleados</td></tr>'}</tbody></table></div></section>
       <section class="panel"><div class="panel-head"><h2>Detalle de entradas y salidas</h2></div><div class="table-wrap"><table class="table">
-        <thead><tr><th>Fecha</th><th>Empleado</th><th>Entrada</th><th>Salida</th><th class="num">Tiempo</th><th>Ubicación</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Empleado</th><th>Entrada</th><th>Salida</th><th class="num">Tiempo</th><th>Horas extra</th><th>Ubicación</th></tr></thead>
         <tbody>${report.rows.map((r) => `<tr><td>${fmtShortDate(r.date)}</td><td>${esc(r.name)}</td>
           <td class="${r.late ? 'late' : ''}">${r.inTime}${r.late ? ' <small>(retardo)</small>' : ''}</td><td>${r.outTime ?? '<span class="muted">Sin salida</span>'}</td>
-          <td class="num">${r.minutes == null ? '—' : fmtDuration(r.minutes)}</td><td>${esc(r.location ?? '—')} <small class="muted">${esc(tzLabel(r.timezone))}</small></td></tr>`).join('')
-          || '<tr><td colspan="6" class="empty">Sin registros en el periodo</td></tr>'}</tbody></table></div></section>`;
+          <td class="num">${r.minutes == null ? '—' : fmtDuration(r.minutes)}</td>
+          <td>${r.overtime ? `${fmtDuration(r.overtimeMinutes)} ${overtimeBadge(r.overtime)}${r.overtime.notes ? `<br><small class="muted">${esc(r.overtime.notes)}</small>` : ''}` : '<span class="muted">—</span>'}</td>
+          <td>${esc(r.location ?? '—')} <small class="muted">${esc(tzLabel(r.timezone))}</small></td></tr>`).join('')
+          || '<tr><td colspan="7" class="empty">Sin registros en el periodo</td></tr>'}</tbody></table></div></section>`;
   }
 
   form.onsubmit = (e) => { e.preventDefault(); load(); };

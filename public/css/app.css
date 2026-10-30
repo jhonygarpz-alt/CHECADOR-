@@ -46,6 +46,8 @@ button, input, select { font: inherit; color: inherit; }
 .btn .icon { width: 18px; height: 18px; }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
 .btn-block { width: 100%; }
+.btn-sm { min-height: 34px; padding: 0 12px; font-size: 13px; }
+.table td.notes { max-width: 260px; font-size: 13px; }
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-primary:hover { background: var(--primary-dark); }
 .btn-white { background: #fff; color: var(--text); }
@@ -59,9 +61,10 @@ button, input, select { font: inherit; color: inherit; }
 .icon-btn:disabled { opacity: .3; cursor: default; }
 
 label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); font-weight: 500; }
-input, select { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px;
+input, select, textarea { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px;
   background: #fff; color: var(--text); font-size: 15px; }
-input:focus, select:focus, .btn:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+input:focus, select:focus, textarea:focus, .btn:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+textarea { padding: 10px 12px; resize: vertical; min-height: 80px; font: inherit; }
 label.check { display: flex; align-items: center; gap: 8px; color: var(--text); }
 label.check input, .days input { width: 18px; min-height: 18px; height: 18px; }
 .input-icon { position: relative; display: block; }
@@ -200,7 +203,7 @@ body.live-on .live-dot { background: var(--success); box-shadow: 0 0 0 4px var(-
 .page-head { display: flex; align-items: center; gap: 10px; padding: 4px 2px; }
 .page-head h1 { font-size: 22px; }
 .month-nav { display: flex; align-items: center; justify-content: space-between; padding: 6px; }
-.mini-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.mini-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .mini-stats div { background: #fff; border-radius: 12px; box-shadow: var(--shadow); padding: 10px; text-align: center; display: grid; }
 .mini-stats b { font-size: 20px; }
 .mini-stats span { font-size: 12px; color: var(--muted); }
@@ -215,6 +218,11 @@ body.live-on .live-dot { background: var(--success); box-shadow: 0 0 0 4px var(-
 .h-total { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .h-total i { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
 .h-total.open i { background: var(--warning); }
+.h-extra { grid-column: 2 / -1; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 8px; display: grid; gap: 2px; }
+.h-extra small { font-weight: 400; color: var(--muted); }
+.h-extra.pending { background: var(--warning-soft); color: var(--warning); }
+.h-extra.approved { background: var(--success-soft); color: var(--success); }
+.h-extra.rejected { background: var(--danger-soft); color: var(--danger); }
 
 /* ---------- Perfil ---------- */
 .profile-head { text-align: center; display: grid; justify-items: center; gap: 4px; padding: 12px 0; }
@@ -287,7 +295,7 @@ body.live-on .live-badge i { background: var(--success); box-shadow: 0 0 0 3px v
 .table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .table th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; background: #f7f9fc; padding: 10px 12px; white-space: nowrap; }
 .table td { padding: 11px 12px; border-top: 1px solid var(--border); vertical-align: middle; }
-.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .table tr.inactive td { opacity: .5; }
 .table tr.flash td { animation: flash 2s ease-out; }
 @keyframes flash { from { background: #fff5c2; } to { background: transparent; } }

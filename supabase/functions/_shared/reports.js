@@ -1,32 +1,8 @@
+import { withOvertime } from './overtime.js';
+import { pairShifts } from './shifts.js';
 import { addDays, eachDay, hhmmToMinutes, minutesToHHMM, weekdayOf, zonedParts } from './time.js';
 
-/**
- * Empareja entradas y salidas válidas (ordenadas por usuario y hora) en jornadas.
- * Una jornada pertenece a la fecha local de su entrada, aunque la salida caiga en el día siguiente.
- */
-export function pairShifts(records, maxShiftHours = 16) {
-  const shifts = [];
-  let open = null;
-  const close = () => { if (open) shifts.push(open); open = null; };
-
-  for (const r of records) {
-    if (open && open.userId !== r.user_id) close();
-    if (r.type === 'in') {
-      close();
-      open = {
-        userId: r.user_id, date: r.local_date, timezone: r.timezone, location: r.location_name ?? null,
-        inTs: new Date(r.ts).toISOString(), inTime: r.local_time.slice(0, 5), late: !!r.late, outTs: null, outTime: null, minutes: null,
-      };
-    } else if (open && new Date(r.ts) - new Date(open.inTs) <= maxShiftHours * 3600_000) {
-      open.outTs = new Date(r.ts).toISOString();
-      open.outTime = r.local_time.slice(0, 5);
-      open.minutes = Math.round((new Date(r.ts) - new Date(open.inTs)) / 60_000);
-      close();
-    }
-  }
-  close();
-  return shifts;
-}
+export { pairShifts };
 
 function employees(sql, config, { userId, department, locationId } = {}) {
   return sql`select u.*, coalesce(l.timezone, ${config.defaultTz}) as tz, (f.user_id is not null) as face_enrolled
@@ -51,7 +27,8 @@ function validRecords(sql, userIds, fromDate, toDate) {
 export async function buildReport(sql, config, { start, end, userId, department, locationId, now = new Date() }) {
   const staff = await employees(sql, config, { userId, department, locationId });
   const records = await validRecords(sql, staff.map((u) => u.id), addDays(start, -1), addDays(end, 1));
-  const shifts = pairShifts(records, config.maxShiftHours).filter((s) => s.date >= start && s.date <= end);
+  const paired = pairShifts(records, config.maxShiftHours).filter((s) => s.date >= start && s.date <= end);
+  const shifts = await withOvertime(sql, config, paired, new Map(staff.map((u) => [u.id, u])));
   const days = eachDay(start, end);
 
   const byUser = new Map(staff.map((u) => [u.id, []]));
@@ -68,6 +45,7 @@ export async function buildReport(sql, config, { start, end, userId, department,
     const absences = expected.filter((d) => !worked.has(d));
     const totalMinutes = own.reduce((acc, s) => acc + (s.minutes ?? 0), 0);
     const avgIn = own.length ? own.reduce((acc, s) => acc + hhmmToMinutes(s.inTime), 0) / own.length : null;
+    const withExtra = own.filter((s) => s.overtimeMinutes > 0);
 
     for (const s of own) {
       rows.push({ ...s, name: u.name, email: u.email, department: u.department });
@@ -78,6 +56,9 @@ export async function buildReport(sql, config, { start, end, userId, department,
       daysWorked: worked.size, expectedDays: expected.length, absences: absences.length, absenceDates: absences,
       lateCount: own.filter((s) => s.late).length, incomplete: own.filter((s) => s.outTs === null).length,
       totalMinutes, averageIn: avgIn === null ? null : minutesToHHMM(avgIn),
+      overtimeMinutes: withExtra.reduce((acc, s) => acc + s.overtimeMinutes, 0),
+      approvedOvertimeMinutes: withExtra.reduce((acc, s) => acc + s.overtime.approvedMinutes, 0),
+      pendingOvertime: withExtra.filter((s) => s.overtime.status === 'pending').length,
     };
   });
 
@@ -98,6 +79,9 @@ export async function buildReport(sql, config, { start, end, userId, department,
       totalMinutes: summary.reduce((a, s) => a + s.totalMinutes, 0),
       lateCount: summary.reduce((a, s) => a + s.lateCount, 0),
       absences: summary.reduce((a, s) => a + s.absences, 0),
+      overtimeMinutes: summary.reduce((a, s) => a + s.overtimeMinutes, 0),
+      approvedOvertimeMinutes: summary.reduce((a, s) => a + s.approvedOvertimeMinutes, 0),
+      pendingOvertime: summary.reduce((a, s) => a + s.pendingOvertime, 0),
       attendanceRate: expectedTotal ? Math.round((attended / expectedTotal) * 1000) / 10 : null,
     },
     series,
@@ -162,20 +146,26 @@ const csvCell = (v) => {
   return /[",\n;]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 };
 const toCsv = (rows) => `\uFEFF${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
+const OVERTIME_STATUS = { pending: 'Pendiente', approved: 'Autorizada', rejected: 'Rechazada' };
 const hours = (min) => (min === null ? '' : (min / 60).toFixed(2));
 
 export function reportToCsv(report, kind = 'detail') {
   if (kind === 'summary') {
     return toCsv([
       ['Empleado', 'Correo', 'Departamento', 'Horario', 'Zona horaria', 'Días trabajados', 'Días esperados',
-        'Faltas', 'Retardos', 'Jornadas sin salida', 'Horas totales', 'Entrada promedio'],
+        'Faltas', 'Retardos', 'Jornadas sin salida', 'Horas totales', 'Entrada promedio', 'Horas extra',
+        'Horas extra autorizadas', 'Horas extra pendientes de revisión'],
       ...report.summary.map((s) => [s.name, s.email, s.department, s.schedule, s.timezone, s.daysWorked,
-        s.expectedDays, s.absences, s.lateCount, s.incomplete, hours(s.totalMinutes), s.averageIn ?? '']),
+        s.expectedDays, s.absences, s.lateCount, s.incomplete, hours(s.totalMinutes), s.averageIn ?? '',
+        hours(s.overtimeMinutes), hours(s.approvedOvertimeMinutes), s.pendingOvertime]),
     ]);
   }
   return toCsv([
-    ['Fecha', 'Empleado', 'Correo', 'Departamento', 'Entrada', 'Salida', 'Horas', 'Retardo', 'Ubicación', 'Zona horaria'],
+    ['Fecha', 'Empleado', 'Correo', 'Departamento', 'Entrada', 'Salida', 'Horas', 'Retardo', 'Ubicación', 'Zona horaria',
+      'Horas extra', 'Estado horas extra', 'Horas extra autorizadas', 'Autorizó', 'Observaciones'],
     ...report.rows.map((r) => [r.date, r.name, r.email, r.department, r.inTime, r.outTime ?? 'Sin salida',
-      hours(r.minutes), r.late ? 'Sí' : 'No', r.location ?? '', r.timezone]),
+      hours(r.minutes), r.late ? 'Sí' : 'No', r.location ?? '', r.timezone,
+      r.overtime ? hours(r.overtimeMinutes) : '', r.overtime ? OVERTIME_STATUS[r.overtime.status] : '',
+      r.overtime ? hours(r.overtime.approvedMinutes) : '', r.overtime?.decidedBy ?? '', r.overtime?.notes ?? '']),
   ]);
 }
