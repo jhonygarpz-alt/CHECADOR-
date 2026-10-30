@@ -1,11 +1,14 @@
 [
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "com.optimasolutions.asisteapp",
       "sha256_cert_fingerprints": [
-        "3B:EF:C5:F5:16:A9:D1:3E:26:C3:7F:CC:83:C6:CE:EB:13:F4:7A:C4:ED:01:C0:F0:9B:3D:00:07:37:58:E7:AF"
+        "3B:EF:C5:F5:16:A9:D1:3E:26:C3:7F:CC:83:C6:CE:EB:13:F4:7A:C4:ED:01:C0:F0:9B:3D:00:07:37:58:E7:AF",
+        "66:2D:3B:0E:0A:77:81:B0:FC:4E:05:E3:37:C9:A7:D5:DC:C5:BC:59:5A:E0:22:45:11:59:C4:2F:1B:49:DC:D7"
       ]
     }
   }
