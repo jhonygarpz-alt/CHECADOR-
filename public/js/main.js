@@ -1,6 +1,6 @@
-import { api, clock, configured, live, session, signOut } from './api.js';
+import { api, clock, configured, isAdmin, live, session, signOut } from './api.js';
 import { checkView, enrollView, historyView, homeView, landingView, loginView, profileView } from './employee.js';
-import { dashboardView, locationsView, overtimeView, recordsView, reportsView, staffView } from './admin.js';
+import { companiesView, dashboardView, locationsView, overtimeView, recordsView, reportsView, staffView } from './admin.js';
 
 const app = document.getElementById('app');
 let cleanup = null;
@@ -19,6 +19,7 @@ const routes = {
   'admin/horas-extras': overtimeView,
   'admin/reportes': reportsView,
   'admin/ubicaciones': locationsView,
+  'admin/empresas': companiesView,
 };
 
 function render() {
@@ -31,7 +32,8 @@ function render() {
     return landingView(app);
   }
   if (path === 'login') { location.hash = '#/'; return; }
-  if (path.startsWith('admin') && session.user.role !== 'admin') { location.hash = '#/'; return; }
+  if (path.startsWith('admin') && !isAdmin(session.user)) { location.hash = '#/'; return; }
+  if (path === 'admin/empresas' && session.user.role !== 'superadmin') { location.hash = '#/admin'; return; }
   const view = routes[path] ?? homeView;
   window.scrollTo(0, 0);
   cleanup = view(app) ?? null;
@@ -41,7 +43,7 @@ async function start(user) {
   session.user = user;
   live.start();
   await clock.sync();
-  if (location.hash === '#/login' || !location.hash) location.hash = user.role === 'admin' ? '#/admin' : '#/';
+  if (location.hash === '#/login' || !location.hash) location.hash = isAdmin(user) ? '#/admin' : '#/';
   else render();
 }
 

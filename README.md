@@ -39,6 +39,12 @@ Navegador (PWA, carpeta public/)          Supabase
   `MIN_OVERTIME_MINUTES`, 15 por defecto). Quedan *pendientes* hasta que un **administrador** las autoriza (todas o
   solo parte de los minutos) o las rechaza, siempre escribiendo el motivo en **observaciones**. Se guarda quién decidió
   y cuándo; los empleados solo pueden consultarlas. Aparecen en el historial del empleado, en los reportes y en el Excel.
+- **Varias empresas.** Cada empresa tiene su propio personal, ubicaciones, registros, horas extras y reportes,
+  completamente separados (también en tiempo real). Roles: **superadministrador** (da de alta empresas con su primer
+  administrador, las activa o desactiva y entra a cualquiera desde el selector *Empresa*), **administrador** (solo su
+  empresa) y **empleado**.
+- **Eliminar registros.** En *Registros*, el administrador puede borrar todos los registros de su empresa (o los de un
+  rango de fechas) con sus fotos y autorizaciones de horas extras; hay que escribir `ELIMINAR` para confirmar.
 - **Aislamiento.** Todo vive en el esquema `asiste` y el bucket `asiste-snapshots`, así que no toca otras tablas que ya
   tenga el proyecto.
 
