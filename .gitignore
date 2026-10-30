@@ -3,3 +3,9 @@ data/
 .env
 *.log
 supabase/functions/.env
+
+# Llave de firma de Android: nunca debe subirse al repositorio
+*.keystore
+*.jks
+android/*
+!android/twa-manifest.json
