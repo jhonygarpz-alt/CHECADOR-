@@ -33,6 +33,10 @@ const handler = createHandler({
       const { error } = await admin.auth.admin.updateUserById(id, attrs);
       if (error) throw new HttpError(400, translate(error.message));
     },
+    async deleteUser(id: string) {
+      const { error } = await admin.auth.admin.deleteUser(id);
+      if (error && error.status !== 404) throw new HttpError(400, translate(error.message));
+    },
   },
   storage: {
     async upload(path: string, bytes: Uint8Array, contentType: string) {

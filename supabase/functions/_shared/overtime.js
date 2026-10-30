@@ -17,8 +17,8 @@ export function overtimeMinutes(shift, profile, config) {
 
 export async function loadDecisions(sql, inIds) {
   if (inIds.length === 0) return new Map();
-  const rows = await sql`select d.*, p.name as decided_by_name from asiste.overtime_decisions d
-    join asiste.profiles p on p.id = d.decided_by where d.in_record_id = any(${inIds}::int[])`;
+  const rows = await sql`select d.*, coalesce(p.name, 'Usuario eliminado') as decided_by_name from asiste.overtime_decisions d
+    left join asiste.profiles p on p.id = d.decided_by where d.in_record_id = any(${inIds}::int[])`;
   return new Map(rows.map((r) => [r.in_record_id, r]));
 }
 

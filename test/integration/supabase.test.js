@@ -288,3 +288,35 @@ test('varias empresas: datos aislados, superadministrador y borrado de registros
     await db.end();
   }
 });
+
+test('usuarios: desactivar, eliminar y protecciones', { skip: skip || !process.env.DB_URL }, async () => {
+  const { default: postgres } = await import('postgres');
+  const db = postgres(process.env.DB_URL, { max: 1 });
+  try {
+    const admin = await signIn(ADMIN);
+    const me = (await api(admin.token, 'GET', '/me')).body.user;
+    const email = `borrar.${stamp}@empresa.com`;
+    const created = await api(admin.token, 'POST', '/admin/users', { name: 'Para Borrar', email, password: 'secreta123' });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const id = created.body.user.id;
+    await db`insert into asiste.records (user_id, company_id, type, ts, local_date, local_time, timezone, status)
+      values (${id}, ${me.company_id}, 'in', now(), '2026-01-05', '09:00:00', 'UTC', 'valid')`;
+
+    let r = await api(admin.token, 'PUT', `/admin/users/${id}`, { active: false });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.user.active, false);
+    await assert.rejects(signIn({ email, password: 'secreta123' }), 'un usuario desactivado no puede entrar');
+    r = await api(admin.token, 'PUT', `/admin/users/${id}`, { active: true });
+    assert.equal(r.body.user.active, true);
+
+    assert.equal((await api(admin.token, 'DELETE', `/admin/users/${me.id}`)).status, 400, 'no puede eliminarse a sí mismo');
+    r = await api(admin.token, 'DELETE', `/admin/users/${id}`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal((await db`select count(*)::int as n from asiste.profiles where id = ${id}`)[0].n, 0);
+    assert.equal((await db`select count(*)::int as n from asiste.records where user_id = ${id}`)[0].n, 0);
+    assert.equal((await db`select count(*)::int as n from auth.users where id = ${id}`)[0].n, 0);
+    assert.equal((await api(admin.token, 'DELETE', `/admin/users/${id}`)).status, 404);
+  } finally {
+    await db.end();
+  }
+});

@@ -144,8 +144,11 @@ export function staffView(root) {
       <td>${u.schedule_start}–${u.schedule_end}<br><small class="muted">${u.work_days.split(',').map((d) => DAYS[d]).join(' ')}</small></td>
       <td>${u.face_enrolled ? `<span class="badge badge-ok">${icon('check')}Registrado</span>` : '<span class="badge badge-warn">Pendiente</span>'}</td>
       <td>${u.active ? 'Activo' : 'Inactivo'}</td>
-      <td class="row-actions"><button class="icon-btn" data-edit="${u.id}" aria-label="Editar">${icon('edit')}</button>
-        ${u.face_enrolled ? `<button class="icon-btn" data-reset="${u.id}" title="Restablecer rostro" aria-label="Restablecer rostro">${icon('refresh')}</button>` : ''}</td>
+      <td class="row-actions"><button class="icon-btn" data-edit="${u.id}" title="Editar" aria-label="Editar">${icon('edit')}</button>
+        ${u.face_enrolled ? `<button class="icon-btn" data-reset="${u.id}" title="Restablecer rostro" aria-label="Restablecer rostro">${icon('refresh')}</button>` : ''}
+        ${u.id === session.user.id || u.role === 'superadmin' ? '' : `
+          <button class="icon-btn ${u.active ? 'warn' : 'ok'}" data-toggle="${u.id}" title="${u.active ? 'Desactivar' : 'Activar'}" aria-label="${u.active ? 'Desactivar' : 'Activar'}">${icon('power')}</button>
+          <button class="icon-btn bad" data-remove="${u.id}" title="Eliminar" aria-label="Eliminar">${icon('trash')}</button>`}</td>
     </tr>`).join('');
   }
 
@@ -158,7 +161,54 @@ export function staffView(root) {
       toast('Rostro restablecido', 'success');
       load();
     }
+    const toggle = e.target.closest('[data-toggle]');
+    if (toggle) {
+      const u = users.find((x) => x.id === toggle.dataset.toggle);
+      const msg = u.active
+        ? `${u.name} ya no podrá entrar a la app ni checar. Su historial se conserva. ¿Desactivar?`
+        : `${u.name} podrá volver a entrar a la app. ¿Activar?`;
+      if (await confirmDialog(msg)) {
+        try {
+          await api(`/api/admin/users/${u.id}`, { method: 'PUT', body: { active: !u.active } });
+          toast(u.active ? 'Usuario desactivado' : 'Usuario activado', 'success');
+          load();
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      }
+    }
+    const remove = e.target.closest('[data-remove]');
+    if (remove) removeUser(users.find((x) => x.id === remove.dataset.remove));
   });
+
+  function removeUser(u) {
+    const m = modal('Eliminar usuario', `<form class="form">
+      <p>Se eliminará <b>permanentemente</b> a <b>${esc(u.name)}</b> (${esc(u.email)}): su cuenta, <b>todos sus registros</b>,
+        sus fotos y su rostro registrado. Esta acción no se puede deshacer.</p>
+      <p class="muted small">Si solo quieres que deje de entrar conservando su historial, usa <b>Desactivar</b>.</p>
+      <label>Para confirmar escribe <b>ELIMINAR</b><input name="confirm" autocomplete="off" placeholder="ELIMINAR"></label>
+      <p class="form-error"></p>
+      <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button>
+        <button class="btn btn-danger" type="submit">${icon('trash')}Eliminar</button></div></form>`);
+    const f = $('form', m.el);
+    f.onsubmit = async (ev) => {
+      ev.preventDefault();
+      if (f.confirm.value.trim() !== 'ELIMINAR') {
+        $('.form-error', f).textContent = 'Escribe ELIMINAR en mayúsculas para confirmar.';
+        return;
+      }
+      $('button[type=submit]', f).disabled = true;
+      try {
+        await api(`/api/admin/users/${u.id}`, { method: 'DELETE' });
+        m.close();
+        toast('Usuario eliminado', 'success');
+        load();
+      } catch (err) {
+        $('.form-error', f).textContent = err.message;
+        $('button[type=submit]', f).disabled = false;
+      }
+    };
+  }
   $('[data-new]', root).onclick = () => openForm(null);
 
   function openForm(u) {
