@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1565d8">
+  <title>Aviso de privacidad · AsisteApp</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <style>
+    :root { --primary: #1565d8; --text: #182134; --muted: #687389; --border: #e2e7ef; --bg: #f3f6fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); background: var(--bg); }
+    header { background: var(--primary); color: #fff; padding: 28px 16px; }
+    header div, main { max-width: 760px; margin: 0 auto; }
+    header h1 { margin: 0; font-size: 26px; }
+    header p { margin: 6px 0 0; opacity: .85; }
+    main { background: #fff; padding: 24px 20px 40px; }
+    h2 { font-size: 18px; margin: 28px 0 8px; }
+    ul { padding-left: 22px; }
+    li { margin: 4px 0; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .box { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; background: #f9fbff; }
+    a { color: var(--primary); }
+  </style>
+</head>
+<body>
+  <header><div><h1>Aviso de privacidad</h1><p>AsisteApp · Control de asistencia</p></div></header>
+  <main>
+    <p class="muted">Última actualización: 30 de octubre de 2026</p>
+
+    <h2>1. Responsable</h2>
+    <p>[RAZÓN SOCIAL DE LA EMPRESA], con domicilio en [DOMICILIO], es responsable del tratamiento de los datos
+      personales que se recaban mediante AsisteApp, en términos de la Ley Federal de Protección de Datos Personales en
+      Posesión de los Particulares (LFPDPPP). Contacto de privacidad: <a href="mailto:[CORREO DE CONTACTO]">[CORREO DE CONTACTO]</a>.</p>
+
+    <h2>2. Datos que recabamos</h2>
+    <ul>
+      <li><b>Identificación y laborales:</b> nombre, correo institucional, puesto, departamento, horario y centro de trabajo.</li>
+      <li><b>Datos biométricos (sensibles):</b> una plantilla numérica de tu rostro, calculada a partir de varias capturas
+        de la cámara al registrarte. No se guardan las fotos usadas para crearla.</li>
+      <li><b>Fotografía de cada registro:</b> una imagen pequeña tomada en el momento de checar entrada o salida, como evidencia.</li>
+      <li><b>Ubicación:</b> coordenadas GPS y su precisión <b>únicamente en el momento</b> de registrar entrada o salida.
+        La app no rastrea tu ubicación en segundo plano ni fuera de esos momentos.</li>
+      <li><b>Registros de asistencia:</b> fecha y hora (tomadas del servidor), tipo de registro, resultado de las validaciones,
+        horas trabajadas y horas extras con sus autorizaciones.</li>
+      <li><b>Datos técnicos:</b> tipo de navegador o dispositivo usado al registrar.</li>
+    </ul>
+
+    <h2>3. Para qué los usamos</h2>
+    <p>Exclusivamente para el control de asistencia del personal: verificar la identidad y la presencia en el centro de
+      trabajo al checar, calcular jornadas, retardos, faltas y horas extras, y generar los reportes que requiere la
+      administración de personal y la nómina. No usamos tus datos para publicidad ni los vendemos.</p>
+
+    <h2>4. Consentimiento para datos sensibles</h2>
+    <div class="box">El tratamiento de tus datos biométricos requiere tu <b>consentimiento expreso y por escrito</b>, que se
+      recaba antes de que registres tu rostro. Puedes revocarlo en cualquier momento; en ese caso tu plantilla facial se
+      elimina y la empresa te indicará un método alternativo de registro de asistencia.</div>
+
+    <h2>5. Permisos del dispositivo</h2>
+    <ul>
+      <li><b>Cámara:</b> solo para registrar tu rostro y para verificarlo al checar.</li>
+      <li><b>Ubicación:</b> solo al checar, para comprobar que estás dentro del área permitida de tu centro de trabajo.</li>
+    </ul>
+
+    <h2>6. Con quién se comparten</h2>
+    <p>Los datos se almacenan con proveedores de infraestructura que actúan como encargados por cuenta de la empresa:
+      Supabase (base de datos, autenticación y almacenamiento, servidores en Estados Unidos) y Vercel (publicación de la
+      aplicación). Esto implica una transferencia internacional necesaria para prestar el servicio. Solo el personal
+      administrador autorizado de la empresa puede consultar los registros. No se comparten con otros terceros salvo
+      requerimiento de autoridad competente.</p>
+
+    <h2>7. Seguridad y conservación</h2>
+    <p>La información viaja cifrada (HTTPS), el acceso requiere usuario y contraseña, y las plantillas faciales no pueden
+      ser consultadas por ningún usuario de la app. Conservamos los registros de asistencia durante [PLAZO, p. ej. el
+      tiempo que exija la legislación laboral y fiscal aplicable] y eliminamos la plantilla facial al terminar la relación laboral.</p>
+
+    <h2>8. Derechos ARCO</h2>
+    <p>Puedes solicitar el acceso, rectificación, cancelación u oposición al tratamiento de tus datos, así como revocar tu
+      consentimiento, escribiendo a <a href="mailto:[CORREO DE CONTACTO]">[CORREO DE CONTACTO]</a> con tu nombre, el
+      derecho que deseas ejercer y una identificación. Responderemos en un plazo máximo de 20 días hábiles.</p>
+
+    <h2>9. Cambios</h2>
+    <p>Cualquier cambio a este aviso se publicará en esta misma página.</p>
+
+    <p class="muted"><a href="/">← Volver a AsisteApp</a></p>
+  </main>
+</body>
+</html>

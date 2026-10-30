@@ -20,6 +20,7 @@ export function landingView(root) {
       <li>${icon('pin')}<span>Ubicación GPS</span></li>
       <li>${icon('report')}<span>Reportes</span></li>
     </ul>
+    <a class="landing-privacy" href="/privacidad.html">Aviso de privacidad</a>
   </main>`;
 }
 
@@ -397,6 +398,7 @@ export function profileView(root, { onLogout }) {
         <small class="${user.face_enrolled ? 'ok' : 'bad'}">${user.face_enrolled ? 'Registrado' : 'Pendiente'}</small></span>${icon('chevronR')}</button></li>
       <li><button data-act="password">${icon('lock')}<span>Cambiar contraseña</span>${icon('chevronR')}</button></li>
       ${user.role === 'admin' ? `<li><a href="#/admin">${icon('grid')}<span>Panel de administración</span>${icon('chevronR')}</a></li>` : ''}
+      <li><a href="/privacidad.html">${icon('shield')}<span>Aviso de privacidad</span>${icon('chevronR')}</a></li>
       <li><button data-act="logout">${icon('logout')}<span>Cerrar sesión</span>${icon('chevronR')}</button></li>
     </ul>`);
 

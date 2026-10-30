@@ -1,8 +1,9 @@
 // Service worker mínimo: permite instalar la app (PWA) y sirve la interfaz sin conexión.
 // Las llamadas a Supabase (otro dominio) nunca se cachean: los registros siempre requieren conexión.
-const CACHE = 'asisteapp-v3';
+const CACHE = 'asisteapp-v4';
 const SHELL = ['/', '/index.html', '/css/app.css', '/js/main.js', '/js/api.js', '/js/ui.js', '/js/face.js',
-  '/js/employee.js', '/js/admin.js', '/config.js', '/icon.svg', '/manifest.webmanifest'];
+  '/js/employee.js', '/js/admin.js', '/config.js', '/icon.svg', '/manifest.webmanifest',
+  '/icons/icon-192.png', '/icons/icon-512.png', '/privacidad.html'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));

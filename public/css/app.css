@@ -90,6 +90,7 @@ body:has(.landing) { background: linear-gradient(160deg, #1976f0, #0b3d91); }
 .landing-features { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0; margin: 0; font-size: 13px; }
 .landing-features li { display: grid; justify-items: center; gap: 8px; }
 .landing-features .icon { width: 30px; height: 30px; }
+.landing-privacy { color: #fff; opacity: .75; font-size: 13px; text-decoration: underline; }
 
 /* ---------- Contenedor móvil ---------- */
 .phone { max-width: 480px; margin: 0 auto; min-height: 100dvh; background: var(--bg); position: relative; }
