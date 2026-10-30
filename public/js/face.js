@@ -103,7 +103,7 @@ export function getPosition({ timeoutMs = 15000, goodAccuracy = 30 } = {}) {
       if (err.code === err.PERMISSION_DENIED) {
         navigator.geolocation.clearWatch(id);
         clearTimeout(timer);
-        reject(new Error('Permiso de ubicación denegado. Habilítalo en la configuración del navegador.'));
+        reject(new Error('Permiso de ubicación denegado. En la app: Ajustes → Apps → AsisteApp → Permisos → Ubicación → Permitir. En el navegador: candado de la barra de dirección → Ubicación → Permitir.'));
       }
     }, { enableHighAccuracy: true, maximumAge: 0, timeout: timeoutMs });
     const timer = setTimeout(finish, timeoutMs);
