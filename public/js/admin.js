@@ -1,5 +1,7 @@
 import { api, clock, download, live, session } from './api.js';
 
+import { buildIncidenciasXlsx, incidenciasData, isoWeek, payrollWeek } from './incidencias.js';
+
 const activeCompany = () => session.companyId || session.user.company_id;
 import {
   $, $$, avatar, confirmDialog, esc, fmtDuration, fmtShortDate, formData, icon, localDate, mapLink, modal, toast, tzLabel,
@@ -547,7 +549,8 @@ export function reportsView(root) {
   const today = localDate(clock.now(), session.user.timezone);
   body.innerHTML = `<form class="filters panel no-print">
       <label>Periodo<select name="period">
-        <option value="daily">Diario</option><option value="weekly">Semanal</option>
+        <option value="daily">Diario</option><option value="weekly">Semanal (lun a dom)</option>
+        <option value="payroll">Semana de nómina (jue a mié)</option>
         <option value="monthly" selected>Mensual</option><option value="custom">Personalizado</option></select></label>
       <label data-single>Fecha<input type="date" name="date" value="${today}"></label>
       <label data-custom hidden>Desde<input type="date" name="start" value="${today.slice(0, 8)}01"></label>
@@ -557,7 +560,7 @@ export function reportsView(root) {
       <button class="btn btn-primary">Generar reporte</button>
     </form>
     <div class="export no-print" hidden>
-      <button class="btn btn-excel" data-csv="detail">${icon('download')}Excel (detalle)</button>
+      <button class="btn btn-excel" data-xlsx>${icon('download')}Excel (detalle)</button>
       <button class="btn btn-excel" data-csv="summary">${icon('download')}Excel (resumen)</button>
       <button class="btn btn-pdf" data-print>${icon('print')}PDF / Imprimir</button>
     </div>
@@ -565,24 +568,28 @@ export function reportsView(root) {
   const form = $('form', body);
   let query = '';
   let report = null;
+  let users = [];
 
   form.period.onchange = () => {
     const custom = form.period.value === 'custom';
     $$('[data-custom]', form).forEach((x) => { x.hidden = !custom; });
     $('[data-single]', form).hidden = custom;
   };
-  Promise.all([api('/api/admin/departments'), api('/api/admin/users')]).then(([{ departments }, { users }]) => {
+  Promise.all([api('/api/admin/departments'), api('/api/admin/users')]).then(([{ departments }, { users: list }]) => {
+    users = list;
     form.department.insertAdjacentHTML('beforeend', departments.map((d) => `<option>${esc(d)}</option>`).join(''));
-    form.userId.insertAdjacentHTML('beforeend', users.filter((u) => u.role === 'employee')
+    form.userId.insertAdjacentHTML('beforeend', list.filter((u) => u.role === 'employee')
       .map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join(''));
   });
 
   async function load() {
     const data = formData(form);
+    if (data.period === 'payroll') Object.assign(data, { period: 'custom', ...payrollWeek(data.date) });
     if (data.period === 'custom') delete data.date; else { delete data.start; delete data.end; }
     query = new URLSearchParams(Object.entries(data).filter(([, v]) => v)).toString();
     try {
       report = await api(`/api/admin/reports?${query}`);
+      if (form.period.value === 'payroll') report.period = 'payroll';
       render();
       $('.export', body).hidden = false;
     } catch (err) {
@@ -592,7 +599,7 @@ export function reportsView(root) {
 
   function render() {
     const { totals: t, range } = report;
-    const periodName = { daily: 'Diario', weekly: 'Semanal', monthly: 'Mensual', custom: 'Personalizado' }[report.period];
+    const periodName = { daily: 'Diario', weekly: 'Semanal', payroll: `Semana de nómina ${isoWeek(report.range.end)}`, monthly: 'Mensual', custom: 'Personalizado' }[report.period];
     $('[data-out]', body).innerHTML = `
       <div class="print-only print-title"><h1>Reporte de asistencia</h1></div>
       <p class="report-range">${periodName}: <b>${fmtShortDate(range.start)}</b> al <b>${fmtShortDate(range.end)}</b></p>
@@ -627,6 +634,29 @@ export function reportsView(root) {
           || '<tr><td colspan="7" class="empty">Sin registros en el periodo</td></tr>'}</tbody></table></div></section>`;
   }
 
+  /** Excel con el formato "INCIDENCIAS DE NOMINA" de la empresa. */
+  async function exportIncidencias(btn) {
+    btn.disabled = true;
+    try {
+      const today = localDate(clock.now(), session.user.timezone);
+      const people = incidenciasData(report, users, today);
+      const blob = await buildIncidenciasXlsx(people, report.range);
+      const { start, end } = report.range;
+      const days = (Date.parse(end) - Date.parse(start)) / 86400000 + 1;
+      const name = days === 7 ? `INCIDENCIAS_DE_NOMINA_SEM_${isoWeek(end)}.xlsx` : `INCIDENCIAS_DE_NOMINA_${start}_${end}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement('a'), { href: url, download: name });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   form.onsubmit = (e) => { e.preventDefault(); load(); };
   body.addEventListener('click', (e) => {
     const csv = e.target.closest('[data-csv]');
@@ -636,6 +666,8 @@ export function reportsView(root) {
         `asistencia_${csv.dataset.csv === 'summary' ? 'resumen' : 'detalle'}_${start}_${end}.csv`).catch((err) => toast(err.message, 'error'));
     }
     if (e.target.closest('[data-print]')) window.print();
+    const xlsx = e.target.closest('[data-xlsx]');
+    if (xlsx) exportIncidencias(xlsx);
   });
   load();
 }
