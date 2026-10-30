@@ -1,4 +1,4 @@
-import { api, changePassword, clock, live, session, signIn } from './api.js';
+import { api, changePassword, clock, isAdmin, live, session, signIn } from './api.js';
 import { averageDescriptor, captureSamples, getPosition, loadFaceApi, snapshot, startCamera, stopCamera } from './face.js';
 import {
   $, avatar, esc, fmtDay, fmtDayMonth, fmtDuration, fmtLongDate, fmtMonth, fmtTime, formData, icon,
@@ -68,7 +68,7 @@ function shell(root, active, content) {
   const tabs = [
     ['#/', 'home', 'Inicio'],
     ['#/historial', 'history', 'Historial'],
-    ...(user.role === 'admin' ? [['#/admin', 'grid', 'Panel']] : []),
+    ...(isAdmin(user) ? [['#/admin', 'grid', 'Panel']] : []),
     ['#/perfil', 'user', 'Perfil'],
   ];
   root.innerHTML = `<div class="phone">
@@ -397,7 +397,7 @@ export function profileView(root, { onLogout }) {
       <li><button data-act="face">${icon('face')}<span>Reconocimiento facial
         <small class="${user.face_enrolled ? 'ok' : 'bad'}">${user.face_enrolled ? 'Registrado' : 'Pendiente'}</small></span>${icon('chevronR')}</button></li>
       <li><button data-act="password">${icon('lock')}<span>Cambiar contraseña</span>${icon('chevronR')}</button></li>
-      ${user.role === 'admin' ? `<li><a href="#/admin">${icon('grid')}<span>Panel de administración</span>${icon('chevronR')}</a></li>` : ''}
+      ${isAdmin(user) ? `<li><a href="#/admin">${icon('grid')}<span>Panel de administración</span>${icon('chevronR')}</a></li>` : ''}
       <li><a href="/privacidad.html">${icon('shield')}<span>Aviso de privacidad</span>${icon('chevronR')}</a></li>
       <li><button data-act="logout">${icon('logout')}<span>Cerrar sesión</span>${icon('chevronR')}</button></li>
     </ul>`);

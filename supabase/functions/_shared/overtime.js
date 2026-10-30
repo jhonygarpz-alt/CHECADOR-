@@ -46,13 +46,13 @@ export async function withOvertime(sql, config, shifts, profilesById) {
 }
 
 /** Jornadas con horas extras en el rango [from, to] de fechas locales. */
-export async function listOvertime(sql, config, { from, to, userId, status }) {
+export async function listOvertime(sql, config, { companyId, from, to, userId, status }) {
   const records = await sql`select r.*, l.name as location_name from asiste.records r
     left join asiste.locations l on l.id = r.location_id
-    where r.status = 'valid' and r.local_date between ${addDays(from, -1)} and ${addDays(to, 1)}
+    where r.company_id = ${companyId} and r.status = 'valid' and r.local_date between ${addDays(from, -1)} and ${addDays(to, 1)}
       ${userId ? sql`and r.user_id = ${userId}` : sql``}
     order by r.user_id, r.ts, r.id`;
-  const profiles = await sql`select * from asiste.profiles`;
+  const profiles = await sql`select * from asiste.profiles where company_id = ${companyId}`;
   const byId = new Map(profiles.map((p) => [p.id, p]));
   const shifts = pairShifts(records, config.maxShiftHours).filter((s) => s.date >= from && s.date <= to);
   const items = (await withOvertime(sql, config, shifts, byId))
@@ -63,14 +63,15 @@ export async function listOvertime(sql, config, { from, to, userId, status }) {
 }
 
 /** Autoriza o rechaza las horas extras de una jornada. Solo debe llamarse para administradores. */
-export async function decideOvertime(sql, config, admin, inRecordId, body) {
+export async function decideOvertime(sql, config, admin, companyId, inRecordId, body) {
   const status = body?.status;
   const notes = String(body?.notes ?? '').trim();
   if (status !== 'approved' && status !== 'rejected') throw new HttpError(400, 'Indica si se autoriza o se rechaza');
   if (notes.length < 5) throw new HttpError(400, 'Escribe en observaciones el motivo (mínimo 5 caracteres)');
   if (notes.length > 1000) throw new HttpError(400, 'Las observaciones no pueden exceder 1000 caracteres');
 
-  const [inRecord] = await sql`select * from asiste.records where id = ${inRecordId} and type = 'in' and status = 'valid'`;
+  const [inRecord] = await sql`select * from asiste.records where id = ${inRecordId} and company_id = ${companyId}
+    and type = 'in' and status = 'valid'`;
   if (!inRecord) throw new HttpError(404, 'Jornada no encontrada');
   const records = await sql`select * from asiste.records where user_id = ${inRecord.user_id} and status = 'valid'
     and ts >= ${inRecord.ts} order by ts, id limit 2`;

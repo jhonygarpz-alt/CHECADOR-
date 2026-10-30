@@ -259,6 +259,11 @@ body.live-on .live-dot { background: var(--success); box-shadow: 0 0 0 4px var(-
 .sidebar { background: var(--sidebar); color: #c9d3e3; padding: 18px 12px; position: sticky; top: 0; height: 100dvh; }
 .side-brand { display: flex; align-items: center; gap: 10px; color: #fff; font-weight: 700; font-size: 18px; padding: 4px 10px 22px; }
 .sidebar nav { display: grid; gap: 4px; }
+.company-switch { color: #9fb0c8; font-size: 12px; margin: 0 6px 16px; }
+.company-switch select { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .15); color: #fff; min-height: 38px; font-size: 14px; }
+.company-switch select option { color: var(--text); }
+.company-name { display: flex; align-items: center; gap: 8px; color: #fff; font-size: 13px; margin: 0 10px 16px; opacity: .85; }
+.company-name .icon { width: 16px; height: 16px; }
 .sidebar nav a { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; color: inherit; font-size: 14px; }
 .sidebar nav a .icon { width: 19px; height: 19px; }
 .sidebar nav a:hover { background: rgba(255, 255, 255, .06); }
@@ -350,6 +355,7 @@ body.live-on .live-badge i { background: var(--success); box-shadow: 0 0 0 3px v
   .sidebar nav { display: flex; overflow-x: auto; }
   .sidebar nav a { flex: none; padding: 8px 10px; }
   .sidebar .side-back { margin: 0; }
+  .company-switch, .company-name { margin: 0 4px 8px; }
   .admin-head, .admin-body { padding: 14px 16px; }
   .admin-user { display: none; }
   .grid-2 { grid-template-columns: 1fr; }

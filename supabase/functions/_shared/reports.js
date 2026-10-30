@@ -4,12 +4,12 @@ import { addDays, eachDay, hhmmToMinutes, minutesToHHMM, weekdayOf, zonedParts }
 
 export { pairShifts };
 
-function employees(sql, config, { userId, department, locationId } = {}) {
+function employees(sql, config, { companyId, userId, department, locationId }) {
   return sql`select u.*, coalesce(l.timezone, ${config.defaultTz}) as tz, (f.user_id is not null) as face_enrolled
     from asiste.profiles u
     left join asiste.locations l on l.id = u.location_id
     left join asiste.face_templates f on f.user_id = u.id
-    where u.active and u.role = 'employee'
+    where u.company_id = ${companyId} and u.active and u.role = 'employee'
       ${userId ? sql`and u.id = ${userId}` : sql``}
       ${department ? sql`and u.department = ${department}` : sql``}
       ${locationId ? sql`and u.location_id = ${Number(locationId)}` : sql``}
@@ -24,8 +24,8 @@ function validRecords(sql, userIds, fromDate, toDate) {
 }
 
 /** Reporte de asistencia para el rango de fechas locales [start, end]. */
-export async function buildReport(sql, config, { start, end, userId, department, locationId, now = new Date() }) {
-  const staff = await employees(sql, config, { userId, department, locationId });
+export async function buildReport(sql, config, { companyId, start, end, userId, department, locationId, now = new Date() }) {
+  const staff = await employees(sql, config, { companyId, userId, department, locationId });
   const records = await validRecords(sql, staff.map((u) => u.id), addDays(start, -1), addDays(end, 1));
   const paired = pairShifts(records, config.maxShiftHours).filter((s) => s.date >= start && s.date <= end);
   const shifts = await withOvertime(sql, config, paired, new Map(staff.map((u) => [u.id, u])));
@@ -91,8 +91,8 @@ export async function buildReport(sql, config, { start, end, userId, department,
 }
 
 /** Panel en tiempo real: estado del día de cada empleado en su propia zona horaria. */
-export async function buildDashboard(sql, config, now = new Date()) {
-  const staff = await employees(sql, config);
+export async function buildDashboard(sql, config, companyId, now = new Date()) {
+  const staff = await employees(sql, config, { companyId });
   const since = addDays(new Date(now.getTime() - 86400_000).toISOString().slice(0, 10), -1);
   const records = await validRecords(sql, staff.map((u) => u.id), since, '9999-12-31');
   const byUser = new Map(staff.map((u) => [u.id, []]));
@@ -118,6 +118,7 @@ export async function buildDashboard(sql, config, now = new Date()) {
   const latest = await sql`select r.id, r.user_id, p.name as user_name, r.type, r.ts, r.local_date, r.local_time,
       r.timezone, l.name as location_name, r.status, r.reason, r.late, (r.snapshot_path is not null) as has_snapshot
     from asiste.records r join asiste.profiles p on p.id = r.user_id left join asiste.locations l on l.id = r.location_id
+    where r.company_id = ${companyId}
     order by r.ts desc, r.id desc limit 15`;
 
   const present = people.filter((p) => p.present).length;

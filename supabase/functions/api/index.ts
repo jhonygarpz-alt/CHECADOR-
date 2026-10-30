@@ -39,6 +39,10 @@ const handler = createHandler({
       const { error } = await admin.storage.from(BUCKET).upload(path, bytes, { contentType, upsert: false });
       if (error) throw error;
     },
+    async remove(paths: string[]) {
+      const { error } = await admin.storage.from(BUCKET).remove(paths);
+      if (error) throw error;
+    },
     async signedUrl(path: string, seconds: number) {
       const { data, error } = await admin.storage.from(BUCKET).createSignedUrl(path, seconds);
       if (error) throw error;

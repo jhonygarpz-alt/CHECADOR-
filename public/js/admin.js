@@ -1,4 +1,6 @@
 import { api, clock, download, live, session } from './api.js';
+
+const activeCompany = () => session.companyId || session.user.company_id;
 import {
   $, $$, avatar, confirmDialog, esc, fmtDuration, fmtShortDate, formData, icon, localDate, mapLink, modal, toast, tzLabel,
 } from './ui.js';
@@ -15,10 +17,14 @@ const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
 function layout(root, active, title, actions = '') {
   const user = session.user;
+  const sections = user.role === 'superadmin' ? [...SECTIONS, ['empresas', 'building', 'Empresas']] : SECTIONS;
   root.innerHTML = `<div class="admin">
     <aside class="sidebar">
       <a class="side-brand" href="#/admin">${icon('clock')}<span>AsisteApp</span></a>
-      <nav>${SECTIONS.map(([key, ic, label]) => `<a href="#/admin/${key}" class="${key === active ? 'active' : ''}">${icon(ic)}<span>${label}</span></a>`).join('')}
+      ${user.role === 'superadmin'
+        ? `<label class="company-switch">Empresa<select data-company><option>${esc(user.company_name ?? '')}</option></select></label>`
+        : `<div class="company-name">${icon('building')}<span>${esc(user.company_name ?? '')}</span></div>`}
+      <nav>${sections.map(([key, ic, label]) => `<a href="#/admin/${key}" class="${key === active ? 'active' : ''}">${icon(ic)}<span>${label}</span></a>`).join('')}
         <a href="#/" class="side-back">${icon('home')}<span>Vista empleado</span></a>
       </nav>
     </aside>
@@ -33,7 +39,26 @@ function layout(root, active, title, actions = '') {
       <div class="admin-body"></div>
     </div>
   </div>`;
+  if (user.role === 'superadmin') fillCompanySwitch($('[data-company]', root));
   return $('.admin-body', root);
+}
+
+/** Selector de empresa del superadministrador: cambia la empresa que se está administrando. */
+async function fillCompanySwitch(select) {
+  try {
+    const { companies } = await api('/api/super/companies');
+    const current = activeCompany();
+    if (!companies.some((c) => c.id === current)) session.setCompany(null);
+    select.innerHTML = companies.map((c) => `<option value="${c.id}" ${c.id === activeCompany() ? 'selected' : ''}>${esc(c.name)}${c.active ? '' : ' (inactiva)'}</option>`).join('');
+    select.onchange = () => {
+      const id = Number(select.value);
+      session.setCompany(id === session.user.company_id ? null : id);
+      toast(`Administrando: ${select.selectedOptions[0].textContent}`, 'success');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    };
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 }
 
 const typeBadge = (r) => `<span class="badge ${r.type === 'in' ? 'badge-in' : 'badge-out'}">${icon(r.type === 'in' ? 'login' : 'logout')}${r.type === 'in' ? 'Entrada' : 'Salida'}</span>`;
@@ -87,6 +112,7 @@ export function dashboardView(root) {
   }
 
   const off = live.on('record', (r) => {
+    if (r.company_id !== activeCompany()) return;
     clearTimeout(pending);
     pending = setTimeout(async () => {
       const latest = await load(r.id);
@@ -112,7 +138,7 @@ export function staffView(root) {
   async function load() {
     [{ users }, { locations }] = await Promise.all([api('/api/admin/users'), api('/api/admin/locations')]);
     $('[data-rows]', body).innerHTML = users.map((u) => `<tr class="${u.active ? '' : 'inactive'}">
-      <td><div class="cell-user">${avatar(u.name, 'avatar-sm')}<div><b>${esc(u.name)}</b><span class="muted">${esc(u.email)}${u.role === 'admin' ? ' · Admin' : ''}</span></div></div></td>
+      <td><div class="cell-user">${avatar(u.name, 'avatar-sm')}<div><b>${esc(u.name)}</b><span class="muted">${esc(u.email)}${u.role === 'admin' ? ' · Admin' : u.role === 'superadmin' ? ' · Superadmin' : ''}</span></div></div></td>
       <td>${esc(u.department)}<br><small class="muted">${esc(u.position)}</small></td>
       <td>${esc(u.location_name ?? 'Cualquiera')}<br><small class="muted">${esc(tzLabel(u.timezone))}</small></td>
       <td>${u.schedule_start}–${u.schedule_end}<br><small class="muted">${u.work_days.split(',').map((d) => DAYS[d]).join(' ')}</small></td>
@@ -142,7 +168,8 @@ export function staffView(root) {
       <label>Nombre completo<input name="name" required value="${esc(v.name)}"></label>
       <label>Correo<input name="email" type="email" required value="${esc(v.email)}"></label>
       <label>${u ? 'Nueva contraseña (opcional)' : 'Contraseña'}<input name="password" type="password" minlength="8" ${u ? '' : 'required'} autocomplete="new-password"></label>
-      <label>Rol<select name="role"><option value="employee">Empleado</option><option value="admin" ${v.role === 'admin' ? 'selected' : ''}>Administrador</option></select></label>
+      ${v.role === 'superadmin' ? '<label>Rol<input value="Superadministrador" disabled></label>'
+        : `<label>Rol<select name="role"><option value="employee">Empleado</option><option value="admin" ${v.role === 'admin' ? 'selected' : ''}>Administrador</option></select></label>`}
       <label>Puesto<input name="position" value="${esc(v.position ?? 'Personal Administrativo')}"></label>
       <label>Departamento<input name="department" value="${esc(v.department ?? '')}" list="dept-list"></label>
       <label>Ubicación de trabajo<select name="location_id"><option value="">Cualquier ubicación activa</option>
@@ -180,7 +207,7 @@ export function staffView(root) {
 // ---------------- Registros (auditoría) ----------------
 
 export function recordsView(root) {
-  const body = layout(root, 'registros', 'Registros');
+  const body = layout(root, 'registros', 'Registros', `<button class="btn btn-danger" data-delete>${icon('x')}Eliminar registros</button>`);
   const today = localDate(clock.now(), session.user.timezone);
   body.innerHTML = `<form class="filters panel">
       <label>Desde<input type="date" name="from" value="${today.slice(0, 8)}01"></label>
@@ -205,8 +232,8 @@ export function recordsView(root) {
         <td>${r.has_snapshot ? `<button class="thumb" data-photo="${r.id}" aria-label="Ver foto">${icon('image')}</button>` : '—'}</td>
         <td>${esc(r.user_name)}</td><td>${typeBadge(r)}</td><td>${when(r)}</td>
         <td>${esc(r.location_name ?? '—')}</td>
-        <td><a href="${mapLink(r.lat, r.lng)}" target="_blank" rel="noopener">${Math.round(r.distance_m)} m</a> <small class="muted">±${Math.round(r.accuracy_m)} m</small></td>
-        <td>${r.face_distance.toFixed(2)}</td>
+        <td>${r.lat == null ? '—' : `<a href="${mapLink(r.lat, r.lng)}" target="_blank" rel="noopener">${Math.round(r.distance_m ?? 0)} m</a> <small class="muted">±${Math.round(r.accuracy_m ?? 0)} m</small>`}</td>
+        <td>${r.face_distance == null ? '—' : r.face_distance.toFixed(2)}</td>
         <td>${statusBadge(r)}${r.reason ? `<br><small class="muted">${esc(r.reason)}</small>` : ''}</td></tr>`).join('')
         : '<tr><td colspan="8" class="empty">Sin registros en el rango</td></tr>';
     } catch (err) {
@@ -224,9 +251,129 @@ export function recordsView(root) {
       toast(err.message, 'error');
     }
   });
+  $('[data-delete]', root).onclick = () => {
+    const m = modal('Eliminar registros', `<form class="form">
+      <p>Se eliminarán <b>permanentemente</b> los registros de entrada y salida de <b>${esc($('[data-company]', root)?.selectedOptions[0]?.textContent ?? session.user.company_name ?? 'esta empresa')}</b>,
+        con sus fotos y sus autorizaciones de horas extras. El personal, las ubicaciones y los rostros registrados no se borran.</p>
+      <label class="check"><input type="checkbox" name="all" checked> Todos los registros</label>
+      <div class="inline-3" data-range hidden>
+        <label>Desde<input type="date" name="from" value="${today.slice(0, 8)}01"></label>
+        <label>Hasta<input type="date" name="to" value="${today}"></label>
+      </div>
+      <label>Para confirmar escribe <b>ELIMINAR</b><input name="confirm" autocomplete="off" placeholder="ELIMINAR"></label>
+      <p class="form-error"></p>
+      <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button>
+        <button class="btn btn-danger" type="submit">${icon('x')}Eliminar</button></div></form>`);
+    const f = $('form', m.el);
+    f.all.onchange = () => { $('[data-range]', f).hidden = f.all.checked; };
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      if (f.confirm.value.trim() !== 'ELIMINAR') {
+        $('.form-error', f).textContent = 'Escribe ELIMINAR en mayúsculas para confirmar.';
+        return;
+      }
+      $('button[type=submit]', f).disabled = true;
+      try {
+        const { deleted } = await api('/api/admin/records/delete', {
+          method: 'POST',
+          body: { confirm: 'ELIMINAR', ...(!f.all.checked && { from: f.from.value, to: f.to.value }) },
+        });
+        m.close();
+        toast(`${deleted} registro(s) eliminado(s)`, 'success');
+        load();
+      } catch (err) {
+        $('.form-error', f).textContent = err.message;
+        $('button[type=submit]', f).disabled = false;
+      }
+    };
+  };
   const off = live.on('record', () => load());
   load();
   return off;
+}
+
+// ---------------- Empresas (superadministrador) ----------------
+
+export function companiesView(root) {
+  const body = layout(root, 'empresas', 'Empresas', `<button class="btn btn-primary" data-new>${icon('plus')}Nueva empresa</button>`);
+  body.innerHTML = `<p class="muted small">Cada empresa tiene su propio personal, ubicaciones, registros y reportes, totalmente separados.
+      Usa el selector <b>Empresa</b> del menú para administrar cualquiera de ellas.</p>
+    <section class="panel"><div class="table-wrap"><table class="table">
+      <thead><tr><th>Empresa</th><th class="num">Empleados</th><th class="num">Administradores</th><th class="num">Ubicaciones</th><th>Estado</th><th></th></tr></thead>
+      <tbody data-rows><tr><td colspan="6" class="empty">Cargando…</td></tr></tbody></table></div></section>`;
+  let companies = [];
+
+  async function load() {
+    try {
+      ({ companies } = await api('/api/super/companies'));
+      $('[data-rows]', body).innerHTML = companies.map((c) => `<tr class="${c.active ? '' : 'inactive'}">
+        <td><b>${esc(c.name)}</b>${c.id === session.user.company_id ? ' <small class="muted">(tu empresa)</small>' : ''}</td>
+        <td class="num">${c.employees}</td><td class="num">${c.admins}</td><td class="num">${c.locations}</td>
+        <td>${c.active ? '<span class="badge badge-ok">Activa</span>' : '<span class="badge badge-bad">Inactiva</span>'}</td>
+        <td class="row-actions">
+          <button class="btn btn-ghost btn-sm" data-enter="${c.id}">Administrar</button>
+          <button class="icon-btn" data-edit="${c.id}" aria-label="Editar">${icon('edit')}</button></td></tr>`).join('');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  body.addEventListener('click', (e) => {
+    const enter = e.target.closest('[data-enter]');
+    const edit = e.target.closest('[data-edit]');
+    if (enter) {
+      const id = Number(enter.dataset.enter);
+      session.setCompany(id === session.user.company_id ? null : id);
+      location.hash = '#/admin';
+    }
+    if (edit) openEdit(companies.find((c) => c.id === Number(edit.dataset.edit)));
+  });
+
+  $('[data-new]', root).onclick = () => {
+    const m = modal('Nueva empresa', `<form class="form">
+      <label>Nombre de la empresa<input name="name" required minlength="2"></label>
+      <p class="muted small">Primer administrador de la empresa (podrá dar de alta a su personal y ubicaciones):</p>
+      <label>Nombre completo<input name="admin_name" required></label>
+      <label>Correo<input name="admin_email" type="email" required autocomplete="off"></label>
+      <label>Contraseña inicial<input name="admin_password" type="password" minlength="8" required autocomplete="new-password"></label>
+      <p class="form-error"></p>
+      <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary">Crear empresa</button></div>
+    </form>`);
+    $('form', m.el).onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api('/api/super/companies', { method: 'POST', body: formData(e.target) });
+        m.close();
+        toast('Empresa creada', 'success');
+        load();
+        fillCompanySwitch($('[data-company]', root));
+      } catch (err) {
+        $('.form-error', m.el).textContent = err.message;
+      }
+    };
+  };
+
+  function openEdit(c) {
+    const m = modal('Editar empresa', `<form class="form">
+      <label>Nombre<input name="name" required minlength="2" value="${esc(c.name)}"></label>
+      <label class="check"><input type="checkbox" name="active" ${c.active ? 'checked' : ''}> Activa (si la desactivas, su personal no podrá entrar)</label>
+      <p class="form-error"></p>
+      <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary">Guardar</button></div>
+    </form>`);
+    $('form', m.el).onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api(`/api/super/companies/${c.id}`, { method: 'PUT', body: formData(e.target) });
+        m.close();
+        toast('Empresa actualizada', 'success');
+        load();
+        fillCompanySwitch($('[data-company]', root));
+      } catch (err) {
+        $('.form-error', m.el).textContent = err.message;
+      }
+    };
+  }
+  load();
 }
 
 // ---------------- Horas extras ----------------

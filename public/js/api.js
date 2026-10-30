@@ -9,8 +9,19 @@ export const supabase = configured
 
 const API_BASE = configured ? `${cfg.supabaseUrl.replace(/\/$/, '')}/functions/v1/api` : '';
 
+const COMPANY_KEY = 'asisteapp.company';
+const storage = (fn) => { try { return fn(localStorage); } catch { return null; } };
+
+export const isAdmin = (user) => user?.role === 'admin' || user?.role === 'superadmin';
+
 export const session = {
   user: null,
+  /** Empresa que está administrando el superadministrador (null = la suya). */
+  companyId: Number(storage((s) => s.getItem(COMPANY_KEY))) || null,
+  setCompany(id) {
+    this.companyId = id || null;
+    storage((s) => (id ? s.setItem(COMPANY_KEY, String(id)) : s.removeItem(COMPANY_KEY)));
+  },
   async token() {
     const { data } = await supabase.auth.getSession();
     return data.session?.access_token ?? null;
@@ -35,6 +46,7 @@ export async function api(path, { method = 'GET', body, raw = false } = {}) {
     method,
     headers: {
       apikey: cfg.supabaseKey,
+      ...(session.user?.role === 'superadmin' && session.companyId && { 'X-Company-Id': String(session.companyId) }),
       ...(body !== undefined && { 'Content-Type': 'application/json' }),
       ...(token && { Authorization: `Bearer ${token}` }),
     },
@@ -70,6 +82,7 @@ export async function signIn(email, password) {
 export async function signOut() {
   live.stop();
   session.user = null;
+  session.setCompany(null);
   await supabase.auth.signOut().catch(() => {});
 }
 

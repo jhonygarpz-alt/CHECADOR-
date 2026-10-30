@@ -39,8 +39,8 @@ export async function openShift(sql, userId, config, now = new Date()) {
 
 function candidateLocations(sql, user) {
   return user.location_id
-    ? sql`select * from asiste.locations where id = ${user.location_id} and active`
-    : sql`select * from asiste.locations where active`;
+    ? sql`select * from asiste.locations where id = ${user.location_id} and company_id = ${user.company_id} and active`
+    : sql`select * from asiste.locations where company_id = ${user.company_id} and active`;
 }
 
 /**
@@ -104,9 +104,9 @@ export async function registerAttendance(sql, user, input, { config, storage, no
       && local.minutes > hhmmToMinutes(user.schedule_start) + user.tolerance_min;
 
     const [{ id }] = await tx`insert into asiste.records
-      (user_id, type, ts, local_date, local_time, timezone, location_id, lat, lng, accuracy_m, distance_m,
+      (user_id, company_id, type, ts, local_date, local_time, timezone, location_id, lat, lng, accuracy_m, distance_m,
        face_distance, status, reason, late, snapshot_path, user_agent)
-      values (${user.id}, ${type}, ${now}, ${local.date}, ${local.time}, ${loc.timezone}, ${loc.id}, ${lat}, ${lng},
+      values (${user.id}, ${user.company_id}, ${type}, ${now}, ${local.date}, ${local.time}, ${loc.timezone}, ${loc.id}, ${lat}, ${lng},
         ${accuracy}, ${nearest.distance}, ${faceDistance}, ${reasons.length ? 'rejected' : 'valid'},
         ${reasons.join('; ') || null}, ${late}, ${snapshotPath}, ${String(userAgent).slice(0, 300)})
       returning id`;
@@ -120,7 +120,7 @@ export async function registerAttendance(sql, user, input, { config, storage, no
   return { record, checks: outcome.checks, workedMinutes: outcome.workedMinutes };
 }
 
-const RECORD_COLUMNS = (sql) => sql`r.id, r.user_id, p.name as user_name, p.department, r.type, r.ts, r.local_date,
+const RECORD_COLUMNS = (sql) => sql`r.id, r.user_id, r.company_id, p.name as user_name, p.department, r.type, r.ts, r.local_date,
   r.local_time, r.timezone, r.location_id, l.name as location_name, r.lat, r.lng, r.accuracy_m, r.distance_m,
   r.face_distance, r.status, r.reason, r.late, (r.snapshot_path is not null) as has_snapshot`;
 
@@ -132,10 +132,10 @@ export async function recordView(sql, id) {
   return row;
 }
 
-export function listRecords(sql, { from, to, userId, status }) {
+export function listRecords(sql, { companyId, from, to, userId, status }) {
   return sql`select ${RECORD_COLUMNS(sql)}
     from asiste.records r join asiste.profiles p on p.id = r.user_id left join asiste.locations l on l.id = r.location_id
-    where r.local_date between ${from} and ${to}
+    where r.company_id = ${companyId} and r.local_date between ${from} and ${to}
       ${userId ? sql`and r.user_id = ${userId}` : sql``}
       ${status ? sql`and r.status = ${status}` : sql``}
     order by r.ts desc, r.id desc limit 1000`;

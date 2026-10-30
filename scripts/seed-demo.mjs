@@ -12,12 +12,13 @@ if (!API_URL || !SERVICE_ROLE_KEY || !DB_URL) {
 }
 const sql = postgres(DB_URL, { prepare: false, max: 1 });
 const admin = createClient(API_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+const [{ id: companyId }] = await sql`select min(id) as id from asiste.companies`;
 
 async function location(name, address, lat, lng, radius, timezone) {
-  const [found] = await sql`select * from asiste.locations where name = ${name}`;
+  const [found] = await sql`select * from asiste.locations where name = ${name} and company_id = ${companyId}`;
   if (found) return found;
-  const [created] = await sql`insert into asiste.locations (name, address, lat, lng, radius_m, timezone)
-    values (${name}, ${address}, ${lat}, ${lng}, ${radius}, ${timezone}) returning *`;
+  const [created] = await sql`insert into asiste.locations (company_id, name, address, lat, lng, radius_m, timezone)
+    values (${companyId}, ${name}, ${address}, ${lat}, ${lng}, ${radius}, ${timezone}) returning *`;
   return created;
 }
 
@@ -51,8 +52,8 @@ for (const [name, department, loc, start] of people) {
   const startMin = h * 60 + m;
   const today = zonedParts(now, loc.timezone).date;
   const hired = addDays(today, -45);
-  await sql`insert into asiste.profiles (id, name, email, department, location_id, schedule_start, schedule_end, created_at)
-    values (${data.user.id}, ${name}, ${email}, ${department}, ${loc.id}, ${start},
+  await sql`insert into asiste.profiles (id, company_id, name, email, department, location_id, schedule_start, schedule_end, created_at)
+    values (${data.user.id}, ${companyId}, ${name}, ${email}, ${department}, ${loc.id}, ${start},
       ${`${String(h + 9).padStart(2, '0')}:${String(m).padStart(2, '0')}`}, ${`${hired}T06:00:00Z`})`;
 
   const rows = [];
@@ -65,7 +66,7 @@ for (const [name, department, loc, start] of people) {
       const ts = zonedInstant(d, mins, loc.timezone);
       const local = zonedParts(ts, loc.timezone);
       rows.push({
-        user_id: data.user.id, type, ts, local_date: local.date, local_time: local.time, timezone: loc.timezone,
+        user_id: data.user.id, company_id: companyId, type, ts, local_date: local.date, local_time: local.time, timezone: loc.timezone,
         location_id: loc.id, lat: loc.lat + rand(-0.0004, 0.0004), lng: loc.lng + rand(-0.0004, 0.0004),
         accuracy_m: rand(5, 30), distance_m: rand(5, 60), face_distance: rand(0.2, 0.42), status: 'valid',
         late: type === 'in' && inMin > startMin + 10,
