@@ -11,20 +11,29 @@
   "navigationDividerColor": "#00000000",
   "navigationDividerColorDark": "#00000000",
   "backgroundColor": "#1565D8",
-  "enableNotifications": false,
+  "enableNotifications": true,
   "startUrl": "/",
   "iconUrl": "https://checador-jhug.vercel.app/icons/icon-512.png",
   "maskableIconUrl": "https://checador-jhug.vercel.app/icons/maskable-512.png",
   "splashScreenFadeOutDuration": 300,
-  "signingKey": { "path": "./asisteapp-upload.keystore", "alias": "asisteapp" },
-  "appVersionName": "1.0.0",
-  "appVersionCode": 1,
+  "signingKey": {
+    "path": "./asisteapp-upload.keystore",
+    "alias": "asisteapp"
+  },
+  "appVersionName": "1.0.1",
+  "appVersionCode": 2,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://checador-jhug.vercel.app/manifest.webmanifest",
   "fallbackType": "customtabs",
-  "features": { "locationDelegation": { "enabled": true } },
-  "alphaDependencies": { "enabled": false },
+  "features": {
+    "locationDelegation": {
+      "enabled": true
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
   "enableSiteSettingsShortcut": true,
   "isChromeOSOnly": false,
   "isMetaQuest": false,
@@ -38,5 +47,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "1.0.0"
+  "appVersion": "1.0.1"
 }

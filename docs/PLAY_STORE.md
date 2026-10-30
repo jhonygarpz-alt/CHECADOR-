@@ -7,7 +7,7 @@ que **cada cambio que se publica en Vercel llega a la app sin subir una versión
 | Dato | Valor |
 |---|---|
 | Nombre del paquete | `com.optimasolutions.asisteapp` (no se puede cambiar después de la primera publicación) |
-| Versión | 1.0.0 (código de versión 1) |
+| Versión | 1.0.1 (código de versión 2) |
 | Android mínimo | 7.0 (API 24) · target API 36 |
 | Permisos | Ubicación precisa y aproximada (la cámara la gestiona Chrome) |
 | Configuración | [`android/twa-manifest.json`](../android/twa-manifest.json) |
@@ -84,6 +84,10 @@ Comprobar: `https://checador-jhug.vercel.app/.well-known/assetlinks.json` debe a
 > • Reportes diarios, semanales y mensuales exportables a Excel y PDF.
 >
 > AsisteApp es para uso interno de empresas: las cuentas las crea el administrador de cada organización.
+
+> **Importante:** `enableNotifications` debe quedar en `true` en `twa-manifest.json`. Bubblewrap usa ese valor para
+> activar el servicio interno (`DelegationService`) por el que Chrome le pide a la app el permiso de **ubicación**; si
+> está en `false`, Android responde "permiso denegado" sin mostrar la pregunta.
 
 ## Publicar una versión nueva de la app Android
 
