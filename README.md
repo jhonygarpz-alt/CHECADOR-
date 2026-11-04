@@ -39,6 +39,15 @@ Navegador (PWA, carpeta public/)          Supabase
   `MIN_OVERTIME_MINUTES`, 15 por defecto). Quedan *pendientes* hasta que un **administrador** las autoriza (todas o
   solo parte de los minutos) o las rechaza, siempre escribiendo el motivo en **observaciones**. Se guarda quién decidió
   y cuándo; los empleados solo pueden consultarlas. Aparecen en el historial del empleado, en los reportes y en el Excel.
+- **Horario del sábado.** Cada empleado puede tener un horario distinto los sábados; si se deja vacío usa el de
+  lunes a viernes. Se aplica a retardos, horas extras y autorizaciones.
+- **Entradas tardías con autorización.** Si un empleado intenta registrar su entrada más de `LATE_LIMIT_MINUTES`
+  (30 por defecto) después de su horario, el registro queda *por autorizar*: los administradores de su empresa reciben
+  un aviso en la campana y por push, y lo autorizan o rechazan en *Autorizaciones* (el rechazo requiere motivo). Al
+  autorizarlo cuenta con la hora real del intento, marcado como retardo, y el empleado recibe la respuesta.
+- **Notificaciones.** Campana en tiempo real para administradores y empleados, y notificaciones push al celular
+  (Web Push; en la app de Android se entregan como notificaciones del sistema). Cada persona las activa desde la
+  campana en su dispositivo; al cerrar sesión el dispositivo deja de recibirlas.
 - **Varias empresas.** Cada empresa tiene su propio personal, ubicaciones, registros, horas extras y reportes,
   completamente separados (también en tiempo real). Roles: **superadministrador** (da de alta empresas con su primer
   administrador, las activa o desactiva y entra a cualquiera desde el selector *Empresa*), **administrador** (solo su
@@ -94,6 +103,9 @@ Cada push a la rama de producción vuelve a publicar la app.
 | `MAX_GPS_ACCURACY_M` | `100` | Precisión GPS mínima requerida, en metros |
 | `MAX_SHIFT_HOURS` | `16` | Duración máxima de una jornada para emparejar entrada y salida |
 | `MIN_OVERTIME_MINUTES` | `15` | Minutos mínimos por encima de la jornada para considerarse horas extras |
+| `LATE_LIMIT_MINUTES` | `30` | Retraso a partir del cual la entrada requiere autorización de un administrador |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | — | Llaves para las notificaciones push (`npx web-push generate-vapid-keys`). Sin ellas solo funciona la campana |
+| `VAPID_SUBJECT` | `mailto:soporte@asisteapp.mx` | Contacto del remitente de las notificaciones push |
 
 ## Desarrollo local
 

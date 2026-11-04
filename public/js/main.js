@@ -1,6 +1,9 @@
 import { api, clock, configured, isAdmin, live, session, signOut } from './api.js';
 import { checkView, enrollView, historyView, homeView, landingView, loginView, profileView } from './employee.js';
-import { companiesView, dashboardView, locationsView, overtimeView, recordsView, reportsView, staffView } from './admin.js';
+import {
+  companiesView, dashboardView, lateRequestsView, locationsView, overtimeView, recordsView, reportsView, staffView,
+} from './admin.js';
+import { refreshPush, resetNotifications } from './notifications.js';
 
 const app = document.getElementById('app');
 let cleanup = null;
@@ -17,6 +20,7 @@ const routes = {
   'admin/personal': staffView,
   'admin/registros': recordsView,
   'admin/horas-extras': overtimeView,
+  'admin/autorizaciones': lateRequestsView,
   'admin/reportes': reportsView,
   'admin/ubicaciones': locationsView,
   'admin/empresas': companiesView,
@@ -42,6 +46,7 @@ function render() {
 async function start(user) {
   session.user = user;
   live.start();
+  refreshPush();
   await clock.sync();
   if (location.hash === '#/login' || !location.hash) location.hash = isAdmin(user) ? '#/admin' : '#/';
   else render();
@@ -49,6 +54,7 @@ async function start(user) {
 
 async function logout() {
   await signOut();
+  resetNotifications();
   location.hash = '#/';
   render();
 }
@@ -68,6 +74,7 @@ window.addEventListener('hashchange', render);
       const { user } = await api('/api/me');
       session.user = user;
       live.start();
+      refreshPush();
       await clock.sync();
     } catch {
       await signOut();

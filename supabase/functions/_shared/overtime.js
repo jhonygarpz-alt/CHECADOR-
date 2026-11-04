@@ -1,17 +1,18 @@
 import { HttpError } from './attendance.js';
 import { pairShifts } from './shifts.js';
-import { addDays, hhmmToMinutes } from './time.js';
+import { addDays, hhmmToMinutes, scheduleFor } from './time.js';
 
-/** Duración de la jornada programada en minutos (admite turnos que cruzan la medianoche). */
-export function scheduledMinutes(profile) {
-  const d = hhmmToMinutes(profile.schedule_end) - hhmmToMinutes(profile.schedule_start);
+/** Duración de la jornada programada del día `date` en minutos (admite turnos que cruzan la medianoche). */
+export function scheduledMinutes(profile, date) {
+  const { start, end } = scheduleFor(profile, date);
+  const d = hhmmToMinutes(end) - hhmmToMinutes(start);
   return d > 0 ? d : d + 1440;
 }
 
 /** Minutos extra de una jornada cerrada; por debajo de `minOvertime` no se consideran horas extras. */
 export function overtimeMinutes(shift, profile, config) {
   if (shift.minutes == null) return 0;
-  const extra = shift.minutes - scheduledMinutes(profile);
+  const extra = shift.minutes - scheduledMinutes(profile, shift.date);
   return extra >= config.minOvertime ? extra : 0;
 }
 
@@ -38,7 +39,7 @@ export async function withOvertime(sql, config, shifts, profilesById) {
     const overtime = profile ? overtimeMinutes(s, profile, config) : 0;
     return {
       ...s,
-      scheduledMinutes: profile ? scheduledMinutes(profile) : null,
+      scheduledMinutes: profile ? scheduledMinutes(profile, s.date) : null,
       overtimeMinutes: overtime,
       overtime: overtime > 0 ? decisionView(decisions.get(s.inId)) : null,
     };

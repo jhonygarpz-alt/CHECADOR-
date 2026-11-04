@@ -1,6 +1,7 @@
 // Edge Function `api` de AsisteApp (Supabase / Deno).
 import postgres from 'postgres';
 import { createClient } from '@supabase/supabase-js';
+import webpush from 'web-push';
 import { createHandler } from '../_shared/handler.js';
 import { HttpError, loadConfig } from '../_shared/attendance.js';
 
@@ -11,8 +12,29 @@ const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+// Web Push (notificaciones al celular). Sin llaves VAPID configuradas solo funciona la campana dentro de la app.
+const vapidPublic = Deno.env.get('VAPID_PUBLIC_KEY');
+const vapidPrivate = Deno.env.get('VAPID_PRIVATE_KEY');
+let push: { publicKey: string; send(s: webpush.PushSubscription, p: string): Promise<number> } | null = null;
+if (vapidPublic && vapidPrivate) {
+  webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') || 'mailto:soporte@asisteapp.mx', vapidPublic, vapidPrivate);
+  push = {
+    publicKey: vapidPublic,
+    async send(subscription: webpush.PushSubscription, payload: string) {
+      try {
+        const res = await webpush.sendNotification(subscription, payload, { TTL: 6 * 3600, urgency: 'high' });
+        return res.statusCode;
+      } catch (err) {
+        if (!(err instanceof webpush.WebPushError)) console.error('push', err);
+        return (err as { statusCode?: number }).statusCode ?? 0;
+      }
+    },
+  };
+}
+
 const handler = createHandler({
   sql,
+  push,
   config: loadConfig(Deno.env.toObject()),
   auth: {
     async getUser(token: string) {

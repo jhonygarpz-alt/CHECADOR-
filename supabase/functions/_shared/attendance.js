@@ -1,6 +1,6 @@
 import { isLatitude, isLongitude, nearestLocation } from './geo.js';
 import { euclideanDistance, isValidDescriptor } from './face.js';
-import { hhmmToMinutes, zonedParts } from './time.js';
+import { hhmmToMinutes, scheduleFor, zonedParts } from './time.js';
 
 export function loadConfig(env = {}) {
   return {
@@ -9,6 +9,8 @@ export function loadConfig(env = {}) {
     maxGpsAccuracy: Number(env.MAX_GPS_ACCURACY_M || 100),
     maxShiftHours: Number(env.MAX_SHIFT_HOURS || 16),
     minOvertime: Number(env.MIN_OVERTIME_MINUTES || 15),
+    // Minutos de retraso a partir de los cuales la entrada requiere autorización de un administrador.
+    lateLimitMin: Number(env.LATE_LIMIT_MINUTES || 30),
     adminEmails: String(env.ADMIN_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
   };
 }
@@ -71,6 +73,9 @@ export async function registerAttendance(sql, user, input, { config, storage, no
 
     const open = await openShift(tx, user.id, config, now);
     if (type === 'in' && open) throw new HttpError(409, 'Ya tienes una entrada registrada; registra tu salida');
+    if (type === 'in' && await pendingLateRequest(tx, user.id, config, now)) {
+      throw new HttpError(409, 'Ya tienes una solicitud de entrada pendiente; espera la autorización del administrador');
+    }
     if (type === 'out' && !open) throw new HttpError(409, 'No tienes una entrada abierta para registrar la salida');
 
     const locations = await candidateLocations(tx, user);
@@ -100,24 +105,47 @@ export async function registerAttendance(sql, user, input, { config, storage, no
     if (!checks.accuracy.ok) reasons.push(`Precisión GPS insuficiente (±${checks.accuracy.value} m)`);
 
     const local = zonedParts(now, loc.timezone);
-    const late = type === 'in' && reasons.length === 0
-      && local.minutes > hhmmToMinutes(user.schedule_start) + user.tolerance_min;
+    const minutesLate = local.minutes - hhmmToMinutes(scheduleFor(user, local.date).start);
+    const late = type === 'in' && reasons.length === 0 && minutesLate > user.tolerance_min;
+    // Pasado el límite, la entrada no cuenta hasta que un administrador la autorice.
+    const needsApproval = late && minutesLate > config.lateLimitMin;
+    const status = reasons.length ? 'rejected' : needsApproval ? 'pending' : 'valid';
+    const reason = reasons.join('; ') || (needsApproval ? `Entrada con ${minutesLate} min de retraso: requiere autorización` : null);
 
     const [{ id }] = await tx`insert into asiste.records
       (user_id, company_id, type, ts, local_date, local_time, timezone, location_id, lat, lng, accuracy_m, distance_m,
        face_distance, status, reason, late, snapshot_path, user_agent)
       values (${user.id}, ${user.company_id}, ${type}, ${now}, ${local.date}, ${local.time}, ${loc.timezone}, ${loc.id}, ${lat}, ${lng},
-        ${accuracy}, ${nearest.distance}, ${faceDistance}, ${reasons.length ? 'rejected' : 'valid'},
-        ${reasons.join('; ') || null}, ${late}, ${snapshotPath}, ${String(userAgent).slice(0, 300)})
+        ${accuracy}, ${nearest.distance}, ${faceDistance}, ${status},
+        ${reason}, ${late}, ${snapshotPath}, ${String(userAgent).slice(0, 300)})
       returning id`;
 
+    let request = null;
+    if (needsApproval) {
+      [request] = await tx`insert into asiste.late_requests (company_id, user_id, record_id, local_date, minutes_late)
+        values (${user.company_id}, ${user.id}, ${id}, ${local.date}, ${minutesLate}) returning id, minutes_late`;
+    }
+
     const workedMinutes = type === 'out' ? Math.round((now - new Date(open.ts)) / 60_000) : null;
-    return { id, checks, reasons, workedMinutes };
+    return { id, checks, reasons, workedMinutes, request };
   });
 
   const record = await recordView(sql, outcome.id);
   if (outcome.reasons.length) throw new HttpError(422, outcome.reasons.join('. '), { checks: outcome.checks, record });
-  return { record, checks: outcome.checks, workedMinutes: outcome.workedMinutes };
+  const pending = outcome.request ? { id: outcome.request.id, minutesLate: outcome.request.minutes_late } : null;
+  return { record, checks: outcome.checks, workedMinutes: outcome.workedMinutes, pending };
+}
+
+/**
+ * Solicitud de entrada tardía del usuario que sigue esperando la decisión de un administrador. Pasada la duración
+ * máxima de jornada deja de bloquear nuevos registros (el administrador aún puede resolverla).
+ */
+export async function pendingLateRequest(sql, userId, config, now = new Date()) {
+  const [row] = await sql`select q.id, q.minutes_late, q.created_at, r.local_time, r.local_date from asiste.late_requests q
+    join asiste.records r on r.id = q.record_id where q.user_id = ${userId} and q.status = 'pending'
+      and q.created_at > ${new Date(now - config.maxShiftHours * 3600_000)}
+    order by q.created_at desc limit 1`;
+  return row ?? null;
 }
 
 const RECORD_COLUMNS = (sql) => sql`r.id, r.user_id, r.company_id, p.name as user_name, p.department, r.type, r.ts, r.local_date,

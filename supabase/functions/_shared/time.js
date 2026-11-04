@@ -48,7 +48,18 @@ export function addDays(dateStr, n) {
   return d.toISOString().slice(0, 10);
 }
 
+/** Duración legible: "45 min" o "2 h 05 min". */
+export const humanMinutes = (min) => (min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`);
+
 export const weekdayOf = (dateStr) => new Date(`${dateStr}T00:00:00Z`).getUTCDay();
+
+/** Horario de entrada y salida que aplica en `dateStr`: los sábados usa el horario especial si el perfil lo tiene. */
+export function scheduleFor(profile, dateStr) {
+  if (dateStr && weekdayOf(dateStr) === 6 && profile.sat_start && profile.sat_end) {
+    return { start: profile.sat_start, end: profile.sat_end };
+  }
+  return { start: profile.schedule_start, end: profile.schedule_end };
+}
 
 export function eachDay(start, end) {
   const days = [];

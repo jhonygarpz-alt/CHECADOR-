@@ -4,6 +4,9 @@ import {
   $, avatar, esc, fmtDay, fmtDayMonth, fmtDuration, fmtLongDate, fmtMonth, fmtTime, formData, icon,
   localDate, mapEmbed, modal, toast, tzLabel,
 } from './ui.js';
+import { mountBell } from './notifications.js';
+
+const lateText = (min) => (min < 60 ? `${min} min` : fmtDuration(min));
 
 // ---------------- Pantallas públicas ----------------
 
@@ -89,7 +92,9 @@ export function homeView(root) {
       ${avatar(user.name)}
       <div><h1>Hola, ${esc(user.name.split(' ')[0])}</h1><p>${esc(user.position)}</p></div>
       <span class="live-dot" title="Conexión en tiempo real"></span>
+      <span data-bell></span>
     </header>
+    <div class="banner banner-pending" data-pending hidden>${icon('alert')}<span></span></div>
     ${user.face_enrolled ? '' : `<a class="banner banner-warning" href="#/enrolar">${icon('face')}
       <span><b>Registra tu rostro</b><br>Es necesario antes de tu primer registro.</span>${icon('chevronR')}</a>`}
     <section class="card clock-card">
@@ -124,12 +129,15 @@ export function homeView(root) {
     const [h, m] = fmtTime(now, tz).split(':').map(Number);
     const mins = h * 60 + m;
     const toMin = (s) => s.split(':').reduce((a, b, i) => (i ? a + Number(b) : Number(b) * 60), 0);
-    const start = toMin(user.schedule_start);
-    const end = toMin(user.schedule_end);
+    const saturday = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(now) === 'Sat';
+    const [from, to] = saturday && user.sat_start ? [user.sat_start, user.sat_end] : [user.schedule_start, user.schedule_end];
+    const start = toMin(from);
+    const end = toMin(to);
     const sched = $('[data-sched]', el);
-    let text = `Horario ${user.schedule_start} – ${user.schedule_end}`;
+    let text = `Horario ${from} – ${to}`;
     let cls = 'muted';
     if (status?.open) { text = 'Jornada en curso'; cls = 'ok'; }
+    else if (status?.pending) { text = 'Entrada en espera de autorización'; cls = 'warn'; }
     else if (status?.shift?.outTime) { text = 'Jornada concluida'; cls = 'muted'; }
     else if (mins <= start + user.tolerance_min && mins >= start - 120) { text = 'Dentro del horario'; cls = 'ok'; }
     else if (mins > start + user.tolerance_min && mins < end) { text = 'Fuera de tolerancia: se marcará retardo'; cls = 'warn'; }
@@ -145,7 +153,13 @@ export function homeView(root) {
       $('[data-out]', el).textContent = s?.outTime ?? '--:--';
       if (s?.minutes != null) $('[data-worked]', el).textContent = fmtDuration(s.minutes);
       $('[data-in]', el).classList.toggle('late', !!s?.late);
-      $('[data-type=in]', el).disabled = !!status.open || !user.face_enrolled;
+      const banner = $('[data-pending]', el);
+      banner.hidden = !status.pending;
+      if (status.pending) {
+        $('span', banner).innerHTML = `<b>Entrada de las ${esc(status.pending.localTime)} en espera</b><br>
+          Llegaste ${lateText(status.pending.minutesLate)} tarde. Un administrador debe autorizar tu registro.`;
+      }
+      $('[data-type=in]', el).disabled = !!status.open || !!status.pending || !user.face_enrolled;
       $('[data-type=out]', el).disabled = !status.open || !user.face_enrolled;
       tick();
     } catch (err) {
@@ -160,9 +174,11 @@ export function homeView(root) {
 
   const timer = setInterval(tick, 1000);
   const off = live.on('record', (r) => { if (r.user_id === user.id) load(); });
+  const offNotif = live.on('notification', (n) => { if (n.kind === 'late_decision') load(); });
+  mountBell($('[data-bell]', el));
   tick();
   load();
-  return () => { clearInterval(timer); off(); };
+  return () => { clearInterval(timer); off(); offNotif(); };
 }
 
 // ---------------- Registro de entrada / salida ----------------
@@ -250,12 +266,15 @@ export function checkView(root, { type }) {
     const loc = r.checks.location;
     const row = (ok, ic, title, detail) => `<li>${icon(ic)}<div><b>${title}</b><span class="${ok ? 'ok' : 'bad'}">${detail}</span></div>
       <span class="state ${ok ? 'ok' : 'bad'}">${icon(ok ? 'check' : 'x')}</span></li>`;
+    const wait = r.ok && r.pending;
     rootEl.innerHTML = `<main class="phone phone-plain result">
-      <div class="result-icon ${r.ok ? 'ok' : 'bad'}">${icon(r.ok ? 'check' : 'x')}</div>
-      <h1>${r.ok ? `¡${label} registrada!` : 'Registro rechazado'}</h1>
+      <div class="result-icon ${wait ? 'warn' : r.ok ? 'ok' : 'bad'}">${icon(wait ? 'alert' : r.ok ? 'check' : 'x')}</div>
+      <h1>${wait ? 'Entrada en espera de autorización' : r.ok ? `¡${label} registrada!` : 'Registro rechazado'}</h1>
       <div class="result-time">${fmtTime(when, tz)}</div>
       <p class="muted center">${fmtLongDate(when, tz)} · ${esc(tzLabel(tz))}</p>
       ${r.ok ? '' : `<p class="form-error center">${esc(r.error)}</p>`}
+      ${wait ? `<p class="notice-warn center">Llegaste ${lateText(r.pending.minutesLate)} tarde. Se envió una solicitud al administrador;
+        te avisaremos cuando la autorice. No necesitas volver a registrarte.</p>` : ''}
       <div class="card map-card">
         ${mapEmbed(loc.lat, loc.lng)}
         <div class="map-label">${icon('pin')}<div><b>${esc(loc.name)}</b><span>${esc(loc.address)}</span></div></div>
@@ -265,7 +284,7 @@ export function checkView(root, { type }) {
         ${row(loc.ok, 'pin', 'Ubicación', loc.ok ? 'Dentro del área permitida' : `A ${loc.distance} m (máx. ${loc.radius} m)`)}
         ${r.checks.accuracy.ok ? '' : row(false, 'alert', 'Precisión GPS', `±${r.checks.accuracy.value} m (máx. ${r.checks.accuracy.max} m)`)}
         ${r.workedMinutes != null ? row(true, 'clock', 'Tiempo total', fmtDuration(r.workedMinutes)) : ''}
-        ${r.ok && r.record.late ? row(false, 'alert', 'Puntualidad', 'Entrada con retardo') : ''}
+        ${r.ok && r.record.late ? row(false, 'alert', 'Puntualidad', wait ? 'Requiere autorización' : 'Entrada con retardo') : ''}
       </ul>
       <div class="result-actions">
         ${r.ok ? '' : `<a class="btn btn-ghost btn-block" href="#/registrar/${r.type}?retry=${Date.now()}">Reintentar</a>`}
@@ -414,6 +433,7 @@ export function profileView(root, { onLogout }) {
         <dt>Departamento</dt><dd>${esc(user.department)}</dd>
         <dt>Puesto</dt><dd>${esc(user.position)}</dd>
         <dt>Horario</dt><dd>${esc(user.schedule_start)} – ${esc(user.schedule_end)} (tolerancia ${user.tolerance_min} min)</dd>
+        ${user.sat_start ? `<dt>Sábado</dt><dd>${esc(user.sat_start)} – ${esc(user.sat_end)}</dd>` : ''}
         <dt>Días laborales</dt><dd>${user.work_days.split(',').map((d) => DAYS[d]).join(', ')}</dd>
         <dt>Ubicación</dt><dd>${esc(user.location_name ?? 'Cualquier ubicación activa')}</dd>
         <dt>Zona horaria</dt><dd>${esc(user.timezone)}</dd>

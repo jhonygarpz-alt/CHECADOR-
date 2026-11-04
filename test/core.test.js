@@ -67,4 +67,9 @@ test('horas extras: tiempo trabajado por encima de la jornada programada', () =>
   assert.equal(overtimeMinutes({ minutes: 540 + 10 }, office, config), 0, 'menos del mínimo no cuenta');
   assert.equal(overtimeMinutes({ minutes: 500 }, office, config), 0);
   assert.equal(overtimeMinutes({ minutes: null }, office, config), 0, 'jornada sin salida');
+  const withSat = { ...office, sat_start: '09:00', sat_end: '14:00' };
+  assert.equal(scheduledMinutes(withSat, '2025-03-29'), 300, 'sábado con horario especial');
+  assert.equal(scheduledMinutes(withSat, '2025-03-28'), 540, 'viernes usa el horario normal');
+  assert.equal(scheduledMinutes(office, '2025-03-29'), 540, 'sin horario de sábado usa el normal');
+  assert.equal(overtimeMinutes({ minutes: 360, date: '2025-03-29' }, withSat, config), 60);
 });

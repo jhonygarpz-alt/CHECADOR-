@@ -17,6 +17,7 @@
   "devDependencies": {
     "@supabase/supabase-js": "^2.117.3",
     "postgres": "^3.4.9",
-    "supabase": "^2.120.0"
+    "supabase": "^2.120.0",
+    "web-push": "^3.6.7"
   }
 }
