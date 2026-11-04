@@ -104,7 +104,7 @@ Cada push a la rama de producción vuelve a publicar la app.
 | `MAX_SHIFT_HOURS` | `16` | Duración máxima de una jornada para emparejar entrada y salida |
 | `MIN_OVERTIME_MINUTES` | `15` | Minutos mínimos por encima de la jornada para considerarse horas extras |
 | `LATE_LIMIT_MINUTES` | `30` | Retraso a partir del cual la entrada requiere autorización de un administrador |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | — | Llaves para las notificaciones push (`npx web-push generate-vapid-keys`). Sin ellas solo funciona la campana |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | — | Opcional. Llaves de las notificaciones push; si no se configuran, el servidor las genera una vez y las guarda en `asiste.app_settings` |
 | `VAPID_SUBJECT` | `mailto:soporte@asisteapp.mx` | Contacto del remitente de las notificaciones push |
 
 ## Desarrollo local
