@@ -19,6 +19,22 @@ const SECTIONS = [
 ];
 const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
+// Zonas horarias de México (base de datos IANA), con las regiones que abarca cada una.
+const MX_ZONES = [
+  ['America/Mexico_City', 'Centro: CDMX, Edo. Méx., Jalisco, Puebla, Veracruz, Guanajuato y demás'],
+  ['America/Monterrey', 'Centro: Nuevo León, Coahuila (excepto frontera) y Tamaulipas (excepto frontera)'],
+  ['America/Merida', 'Centro: Yucatán y Campeche'],
+  ['America/Chihuahua', 'Centro: Chihuahua (excepto frontera)'],
+  ['America/Bahia_Banderas', 'Centro: Bahía de Banderas, Nayarit'],
+  ['America/Matamoros', 'Frontera noreste: Nuevo Laredo, Reynosa, Matamoros, Piedras Negras, Acuña'],
+  ['America/Ciudad_Juarez', 'Frontera norte: Ciudad Juárez'],
+  ['America/Ojinaga', 'Frontera norte: Ojinaga y frontera de Chihuahua'],
+  ['America/Cancun', 'Sureste: Quintana Roo'],
+  ['America/Mazatlan', 'Pacífico: Sinaloa, Nayarit y Baja California Sur'],
+  ['America/Hermosillo', 'Pacífico (sin horario de verano): Sonora'],
+  ['America/Tijuana', 'Noroeste: Baja California'],
+];
+
 function layout(root, active, title, actions = '') {
   const user = session.user;
   const sections = user.role === 'superadmin' ? [...SECTIONS, ['empresas', 'building', 'Empresas']] : SECTIONS;
@@ -847,18 +863,19 @@ export function locationsView(root) {
   $('[data-new]', root).onclick = () => openForm(null);
 
   function openForm(l) {
-    const v = l ?? { radius_m: 150, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, active: 1 };
-    const zones = Intl.supportedValuesOf?.('timeZone') ?? [v.timezone];
+    const v = l ?? { radius_m: 150, timezone: 'America/Mexico_City', active: 1 };
+    // Una ubicación antigua con otra zona la conserva como opción para no cambiarla sin querer.
+    const zones = MX_ZONES.some(([z]) => z === v.timezone) ? MX_ZONES : [...MX_ZONES, [v.timezone, v.timezone]];
     const m = modal(l ? 'Editar ubicación' : 'Nueva ubicación', `<form class="form form-grid">
       <label>Nombre<input name="name" required value="${esc(v.name)}"></label>
       <label>Dirección<input name="address" value="${esc(v.address)}"></label>
       <div class="inline-3">
-        <label>Latitud<input name="lat" type="number" step="any" required value="${v.lat ?? ''}"></label>
-        <label>Longitud<input name="lng" type="number" step="any" required value="${v.lng ?? ''}"></label>
+        <label>Latitud<input name="lat" type="number" step="any" min="-90" max="90" required value="${v.lat ?? ''}"></label>
+        <label>Longitud<input name="lng" type="number" step="any" min="-180" max="180" required value="${v.lng ?? ''}"></label>
         <label>Radio (m)<input name="radius_m" type="number" min="20" max="5000" required value="${v.radius_m}"></label>
       </div>
       <button type="button" class="btn btn-ghost" data-here>${icon('pin')}Usar mi ubicación actual</button>
-      <label>Zona horaria<select name="timezone">${zones.map((z) => `<option ${z === v.timezone ? 'selected' : ''}>${z}</option>`).join('')}</select></label>
+      <label>Zona horaria<select name="timezone">${zones.map(([z, label]) => `<option value="${z}" ${z === v.timezone ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
       <label class="check"><input type="checkbox" name="active" ${v.active ? 'checked' : ''}> Activa</label>
       <p class="form-error"></p>
       <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary" type="submit">Guardar</button></div>
