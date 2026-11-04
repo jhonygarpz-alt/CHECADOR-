@@ -850,15 +850,28 @@ export function locationsView(root) {
     ({ locations } = await api('/api/admin/locations'));
     $('[data-list]', body).innerHTML = locations.map((l) => `<article class="panel loc ${l.active ? '' : 'inactive'}">
       <div class="loc-head">${icon('building')}<div><h3>${esc(l.name)}</h3><p class="muted">${esc(l.address)}</p></div>
-        <button class="icon-btn" data-edit="${l.id}" aria-label="Editar">${icon('edit')}</button></div>
+        <button class="icon-btn" data-edit="${l.id}" title="Editar" aria-label="Editar">${icon('edit')}</button>
+        <button class="icon-btn danger" data-del="${l.id}" title="Eliminar" aria-label="Eliminar">${icon('trash')}</button></div>
       <dl class="info-list"><dt>Coordenadas</dt><dd><a href="${mapLink(l.lat, l.lng)}" target="_blank" rel="noopener">${l.lat.toFixed(5)}, ${l.lng.toFixed(5)}</a></dd>
-        <dt>Radio permitido</dt><dd>${l.radius_m} m</dd><dt>Zona horaria</dt><dd>${esc(l.timezone)}</dd>
+        <dt>Radio permitido</dt><dd>${l.radius_m} m</dd><dt>Zona horaria</dt><dd>${esc(MX_ZONES.find(([z]) => z === l.timezone)?.[1] ?? l.timezone)}</dd>
         <dt>Estado</dt><dd>${l.active ? 'Activa' : 'Inactiva'}</dd></dl></article>`).join('') || '<p class="empty">Sin ubicaciones</p>';
   }
 
-  body.addEventListener('click', (e) => {
+  body.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-edit]');
     if (b) openForm(locations.find((l) => l.id === Number(b.dataset.edit)));
+    const del = e.target.closest('[data-del]');
+    if (!del) return;
+    const l = locations.find((x) => x.id === Number(del.dataset.del));
+    if (!await confirmDialog(`¿Eliminar la ubicación "${l.name}"? Los empleados asignados a ella podrán checar en cualquier `
+      + 'ubicación activa. Los registros de asistencia se conservan.')) return;
+    try {
+      await api(`/api/admin/locations/${l.id}`, { method: 'DELETE' });
+      toast('Ubicación eliminada', 'success');
+      load();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
   });
   $('[data-new]', root).onclick = () => openForm(null);
 

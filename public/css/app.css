@@ -60,6 +60,7 @@ button, input, select { font: inherit; color: inherit; }
 .icon-btn:hover { background: rgba(0, 0, 0, .05); }
 .icon-btn:disabled { opacity: .3; cursor: default; }
 .icon-btn.warn { color: var(--warning); }
+.icon-btn.danger { color: var(--danger); }
 .icon-btn.ok { color: var(--success); }
 .icon-btn.bad { color: var(--danger); }
 

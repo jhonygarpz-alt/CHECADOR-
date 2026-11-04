@@ -244,6 +244,8 @@ test('varias empresas: datos aislados, superadministrador y borrado de registros
     const today = new Date().toISOString().slice(0, 10);
     r = await api(adminB.token, 'GET', `/admin/records?from=2000-01-01&to=${today}`);
     assert.equal(r.body.records.length, 0);
+    r = await api(adminB.token, 'DELETE', '/admin/locations/1');
+    assert.equal(r.status, 404, 'no puede borrar ubicaciones de otra empresa');
     r = await api(adminB.token, 'GET', '/super/companies');
     assert.equal(r.status, 403, 'un administrador no gestiona empresas');
     // Pedir otra empresa por cabecera no tiene efecto para un administrador normal
@@ -261,6 +263,9 @@ test('varias empresas: datos aislados, superadministrador y borrado de registros
     assert.equal(loc.status, 201, JSON.stringify(loc.body));
     const emp = await api(adminB.token, 'POST', '/admin/users', { name: 'Empleado B', email: `emp.b.${stamp}@empresa.com`, password: 'secreta123', location_id: loc.body.location.id });
     assert.equal(emp.status, 201, JSON.stringify(emp.body));
+    const temp = await api(adminB.token, 'POST', '/admin/locations', { name: 'Temporal', lat: 25.7, lng: -100.3, radius_m: 100, timezone: 'America/Monterrey' });
+    assert.equal((await api(adminB.token, 'DELETE', `/admin/locations/${temp.body.location.id}`)).status, 200);
+    assert.equal((await api(adminB.token, 'DELETE', `/admin/locations/${temp.body.location.id}`)).status, 404);
     const ubicacionAjena = await api(adminB.token, 'POST', '/admin/users', { name: 'X', email: `x.${stamp}@empresa.com`, password: 'secreta123', location_id: 1 });
     assert.equal(ubicacionAjena.status, 400, 'no puede usar ubicaciones de otra empresa');
 

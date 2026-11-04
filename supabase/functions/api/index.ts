@@ -12,14 +12,28 @@ const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// Web Push (notificaciones al celular). Sin llaves VAPID configuradas solo funciona la campana dentro de la app.
-const vapidPublic = Deno.env.get('VAPID_PUBLIC_KEY');
-const vapidPrivate = Deno.env.get('VAPID_PRIVATE_KEY');
+// Web Push (notificaciones al celular). Las llaves VAPID vienen de los secrets VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY o,
+// si no existen, el servidor las genera una sola vez y las guarda en asiste.app_settings (nunca salen del servidor).
+async function loadVapidKeys(): Promise<{ publicKey: string; privateKey: string }> {
+  const publicKey = Deno.env.get('VAPID_PUBLIC_KEY');
+  const privateKey = Deno.env.get('VAPID_PRIVATE_KEY');
+  if (publicKey && privateKey) return { publicKey, privateKey };
+  const read = async () => (await sql`select value from asiste.app_settings where key = 'vapid'`)[0]?.value;
+  let stored = await read();
+  if (!stored) {
+    await sql`insert into asiste.app_settings (key, value) values ('vapid', ${JSON.stringify(webpush.generateVAPIDKeys())})
+      on conflict (key) do nothing`;
+    stored = await read(); // si otra instancia se adelantó, se usan sus llaves
+  }
+  return JSON.parse(stored);
+}
+
 let push: { publicKey: string; send(s: webpush.PushSubscription, p: string): Promise<number> } | null = null;
-if (vapidPublic && vapidPrivate) {
-  webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') || 'mailto:soporte@asisteapp.mx', vapidPublic, vapidPrivate);
+try {
+  const vapid = await loadVapidKeys();
+  webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') || 'mailto:soporte@asisteapp.mx', vapid.publicKey, vapid.privateKey);
   push = {
-    publicKey: vapidPublic,
+    publicKey: vapid.publicKey,
     async send(subscription: webpush.PushSubscription, payload: string) {
       try {
         const res = await webpush.sendNotification(subscription, payload, { TTL: 6 * 3600, urgency: 'high' });
@@ -30,6 +44,8 @@ if (vapidPublic && vapidPrivate) {
       }
     },
   };
+} catch (err) {
+  console.error('Notificaciones push desactivadas', err); // queda la campana dentro de la app
 }
 
 const handler = createHandler({

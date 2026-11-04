@@ -278,6 +278,14 @@ export function createHandler({ sql, auth, storage, config, push = null }) {
     return json({ location });
   });
 
+  // Los empleados asignados quedan sin ubicación fija y los registros conservan su zona horaria (on delete set null).
+  route('DELETE', '/admin/locations/:id', ADMIN, async ({ params, companyId }) => {
+    const [deleted] = await sql`delete from asiste.locations where id = ${Number(params.id) || 0} and company_id = ${companyId}
+      returning id`;
+    if (!deleted) throw new HttpError(404, 'Ubicación no encontrada');
+    return json({ ok: true });
+  });
+
   route('GET', '/admin/records', ADMIN, async ({ query, companyId }) => {
     const from = query.get('from');
     const to = query.get('to');
