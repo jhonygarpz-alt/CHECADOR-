@@ -5,14 +5,18 @@
 //   sql      → cliente postgres.js conectado a la base de datos
 //   auth     → { getUser(token), createUser({ email, password }), updateUser(id, { email?, password?, banned? }), deleteUser(id) }
 //   storage  → { upload(path, bytes, contentType), remove(paths), signedUrl(path, seconds) }
+//   push     → (opcional) { publicKey, send(subscription, payload) → código HTTP } para Web Push
 //   config   → ver loadConfig()
 
-import { HttpError, listRecords, openShift, recordView, registerAttendance, userTimezone } from './attendance.js';
+import { HttpError, listRecords, openShift, pendingLateRequest, recordView, registerAttendance, userTimezone } from './attendance.js';
 import { averageDescriptor, isValidDescriptor } from './face.js';
 import { isLatitude, isLongitude } from './geo.js';
+import {
+  companyAdmins, decideLateRequest, listLateRequests, listNotifications, notify, savePushSubscription,
+} from './notify.js';
 import { decideOvertime, listOvertime, withOvertime } from './overtime.js';
 import { buildDashboard, buildReport, pairShifts, reportToCsv } from './reports.js';
-import { addDays, isDateString, isHHMM, isValidTimeZone, periodRange, zonedParts } from './time.js';
+import { addDays, humanMinutes, isDateString, isHHMM, isValidTimeZone, periodRange, zonedParts } from './time.js';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -27,7 +31,7 @@ const json = (data, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' },
 });
 
-export function createHandler({ sql, auth, storage, config }) {
+export function createHandler({ sql, auth, storage, config, push = null }) {
   const routes = [];
   const route = (method, pattern, opts, fn) => {
     const keys = [];
@@ -54,7 +58,8 @@ export function createHandler({ sql, auth, storage, config }) {
       id: p.id, name: p.name, email: p.email, role: p.role, position: p.position, department: p.department,
       location_id: p.location_id, location_name: location?.name ?? null, location,
       timezone: location?.timezone ?? config.defaultTz,
-      schedule_start: p.schedule_start, schedule_end: p.schedule_end, tolerance_min: p.tolerance_min,
+      schedule_start: p.schedule_start, schedule_end: p.schedule_end, sat_start: p.sat_start ?? null, sat_end: p.sat_end ?? null,
+      tolerance_min: p.tolerance_min,
       work_days: p.work_days, active: p.active, face_enrolled: !!p.face_enrolled, face_enrolled_at: p.face_enrolled_at,
       company_id: p.company_id, company_name: p.company_name ?? null,
     };
@@ -125,7 +130,11 @@ export function createHandler({ sql, auth, storage, config }) {
       and local_date >= ${addDays(today, -1)} order by ts, id`;
     const shift = pairShifts(recent, config.maxShiftHours).filter((s) => s.date === today).at(-1) ?? null;
     const open = await openShift(sql, user.id, config, now);
-    return json({ now: now.toISOString(), timezone: tz, today, open: open ? { ts: open.ts } : null, shift });
+    const pending = await pendingLateRequest(sql, user.id, config, now);
+    return json({
+      now: now.toISOString(), timezone: tz, today, open: open ? { ts: open.ts } : null, shift,
+      pending: pending && { id: pending.id, minutesLate: pending.minutes_late, localTime: pending.local_time.slice(0, 5) },
+    });
   });
 
   route('GET', '/me/records', USER, async ({ user, query }) => {
@@ -142,7 +151,39 @@ export function createHandler({ sql, auth, storage, config }) {
 
   route('POST', '/attendance', USER, async ({ user, body, req }) => {
     const result = await registerAttendance(sql, user, body, { config, storage, userAgent: req.headers.get('user-agent') ?? '' });
+    if (result.pending) {
+      await notify(sql, push, await companyAdmins(sql, user.company_id), {
+        companyId: user.company_id, kind: 'late_request',
+        title: `Autorizar entrada: ${user.name}`,
+        body: `Intentó registrar su entrada a las ${result.record.local_time.slice(0, 5)} con ${humanMinutes(result.pending.minutesLate)} de retraso.`,
+        link: '#/admin/autorizaciones',
+      }).catch((err) => console.error('notify', err));
+      return json(result, 202);
+    }
     return json(result, 201);
+  });
+
+  // ---------------- Notificaciones ----------------
+
+  route('GET', '/push/key', PUBLIC, () => json({ publicKey: push?.publicKey ?? null }));
+
+  route('GET', '/me/notifications', USER, async ({ user }) => json(await listNotifications(sql, user.id)));
+
+  route('POST', '/me/notifications/read', USER, async ({ user, body }) => {
+    const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Number.isInteger) : null;
+    await sql`update asiste.notifications set read_at = now() where user_id = ${user.id} and read_at is null
+      ${ids ? sql`and id = any(${ids}::int[])` : sql``}`;
+    return json({ ok: true });
+  });
+
+  route('POST', '/me/push', USER, async ({ user, body, req }) => {
+    await savePushSubscription(sql, user.id, body, req.headers.get('user-agent') ?? '');
+    return json({ ok: true }, 201);
+  });
+
+  route('POST', '/me/push/remove', USER, async ({ user, body }) => {
+    await sql`delete from asiste.push_subscriptions where user_id = ${user.id} and endpoint = ${String(body?.endpoint ?? '')}`;
+    return json({ ok: true });
   });
 
   // ---------------- Administración ----------------
@@ -163,9 +204,9 @@ export function createHandler({ sql, auth, storage, config }) {
     }
     const { id } = await auth.createUser({ email: d.email, password: d.password });
     await sql`insert into asiste.profiles (id, company_id, name, email, role, position, department, location_id, schedule_start,
-        schedule_end, tolerance_min, work_days, active)
+        schedule_end, sat_start, sat_end, tolerance_min, work_days, active)
       values (${id}, ${companyId}, ${d.name}, ${d.email}, ${d.role}, ${d.position}, ${d.department}, ${d.location_id},
-        ${d.schedule_start}, ${d.schedule_end}, ${d.tolerance_min}, ${d.work_days}, ${d.active})`;
+        ${d.schedule_start}, ${d.schedule_end}, ${d.sat_start}, ${d.sat_end}, ${d.tolerance_min}, ${d.work_days}, ${d.active})`;
     if (!d.active) await auth.updateUser(id, { banned: true });
     return json({ user: await publicUser(await loadProfile(id)) }, 201);
   });
@@ -189,7 +230,7 @@ export function createHandler({ sql, auth, storage, config }) {
     });
     await sql`update asiste.profiles set name = ${d.name}, email = ${d.email}, role = ${d.role}, position = ${d.position},
         department = ${d.department}, location_id = ${d.location_id}, schedule_start = ${d.schedule_start},
-        schedule_end = ${d.schedule_end}, tolerance_min = ${d.tolerance_min}, work_days = ${d.work_days}, active = ${d.active}
+        schedule_end = ${d.schedule_end}, sat_start = ${d.sat_start}, sat_end = ${d.sat_end}, tolerance_min = ${d.tolerance_min}, work_days = ${d.work_days}, active = ${d.active}
       where id = ${current.id}`;
     return json({ user: await publicUser(await loadProfile(current.id)) });
   });
@@ -245,7 +286,7 @@ export function createHandler({ sql, auth, storage, config }) {
     if (!isDateString(from) || !isDateString(to)) throw new HttpError(400, 'Rango de fechas no válido');
     if (userId && !UUID.test(userId)) throw new HttpError(400, 'Empleado no válido');
     return json({
-      records: await listRecords(sql, { companyId, from, to, userId, status: ['valid', 'rejected'].includes(status) ? status : null }),
+      records: await listRecords(sql, { companyId, from, to, userId, status: ['valid', 'rejected', 'pending'].includes(status) ? status : null }),
     });
   });
 
@@ -294,6 +335,29 @@ export function createHandler({ sql, auth, storage, config }) {
     const id = Number(params.id);
     if (!Number.isInteger(id) || id <= 0) throw new HttpError(404, 'Jornada no encontrada');
     return json({ item: await decideOvertime(sql, config, user, companyId, id, body) });
+  });
+
+  // Entradas fuera del límite de retraso que esperan autorización.
+  route('GET', '/admin/late-requests', ADMIN, async ({ query, companyId }) => {
+    const status = query.get('status') || 'pending';
+    if (!['pending', 'approved', 'rejected', 'all'].includes(status)) throw new HttpError(400, 'Estado no válido');
+    return json({ items: await listLateRequests(sql, companyId, status), lateLimitMin: config.lateLimitMin });
+  });
+
+  route('POST', '/admin/late-requests/:id', ADMIN, async ({ user, params, body, companyId }) => {
+    const id = Number(params.id);
+    if (!Number.isInteger(id) || id <= 0) throw new HttpError(404, 'Solicitud no encontrada');
+    const q = await decideLateRequest(sql, user, companyId, id, body);
+    const approved = q.status === 'approved';
+    await notify(sql, push, [q.user_id], {
+      companyId, kind: 'late_decision',
+      title: approved ? 'Entrada autorizada' : 'Entrada no autorizada',
+      body: approved
+        ? `${user.name} autorizó tu entrada de las ${q.record.local_time.slice(0, 5)}.${q.notes ? ` ${q.notes}` : ''}`
+        : `${user.name} rechazó tu entrada de las ${q.record.local_time.slice(0, 5)}: ${q.notes}`,
+      link: '#/',
+    }).catch((err) => console.error('notify', err));
+    return json({ item: q });
   });
 
   route('GET', '/admin/departments', ADMIN, async ({ companyId }) => json({
@@ -383,6 +447,7 @@ export function createHandler({ sql, auth, storage, config }) {
       position: s(b.position) || 'Personal Administrativo', department: s(b.department) || 'General',
       location_id: b.location_id ? Number(b.location_id) : null,
       schedule_start: s(b.schedule_start) || '09:00', schedule_end: s(b.schedule_end) || '18:00',
+      sat_start: s(b.sat_start) || null, sat_end: s(b.sat_end) || null,
       tolerance_min: Number(b.tolerance_min ?? 10),
       work_days: Array.isArray(b.work_days) ? b.work_days.join(',') : s(b.work_days) || '1,2,3,4,5',
       active: !(b.active === false || b.active === 0),
@@ -391,6 +456,8 @@ export function createHandler({ sql, auth, storage, config }) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) throw new HttpError(400, 'Correo no válido');
     if ((requirePassword || d.password) && d.password.length < 8) throw new HttpError(400, 'La contraseña debe tener al menos 8 caracteres');
     if (!isHHMM(d.schedule_start) || !isHHMM(d.schedule_end)) throw new HttpError(400, 'Horario no válido (HH:MM)');
+    if (!d.sat_start !== !d.sat_end) throw new HttpError(400, 'Indica la entrada y la salida del sábado, o deja ambas vacías');
+    if (d.sat_start && (!isHHMM(d.sat_start) || !isHHMM(d.sat_end))) throw new HttpError(400, 'Horario del sábado no válido (HH:MM)');
     if (!Number.isInteger(d.tolerance_min) || d.tolerance_min < 0 || d.tolerance_min > 240) throw new HttpError(400, 'Tolerancia no válida');
     if (!/^[0-6](,[0-6])*$/.test(d.work_days)) throw new HttpError(400, 'Días laborales no válidos');
     if (d.location_id && !(await sql`select 1 from asiste.locations where id = ${d.location_id} and company_id = ${companyId}`).length) {

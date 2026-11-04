@@ -80,8 +80,11 @@ export async function signIn(email, password) {
 }
 
 export async function signOut() {
-  live.stop();
+  const signedIn = session.user;
   session.user = null;
+  // El celular deja de recibir avisos de esta cuenta (otra persona podría iniciar sesión en él).
+  if (signedIn) await disablePush().catch(() => {});
+  live.stop();
   session.setCompany(null);
   await supabase.auth.signOut().catch(() => {});
 }
@@ -137,6 +140,7 @@ export const live = {
     await supabase.realtime.setAuth();
     this.channel = supabase.channel('asiste-records')
       .on('postgres_changes', { event: 'INSERT', schema: 'asiste', table: 'records' }, (p) => this.emit('record', p.new))
+      .on('postgres_changes', { event: 'INSERT', schema: 'asiste', table: 'notifications' }, (p) => this.emit('notification', p.new))
       .subscribe((status) => this.setConnected(status === 'SUBSCRIBED'));
   },
   stop() {
@@ -157,6 +161,41 @@ export const live = {
     for (const fn of this.listeners.get(type) ?? []) fn(data);
   },
 };
+
+// ---------- Notificaciones push (Web Push) ----------
+
+export const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+const b64ToBytes = (s) => Uint8Array.from(atob((s + '='.repeat((4 - (s.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/')),
+  (c) => c.charCodeAt(0));
+
+export async function pushSubscription() {
+  if (!pushSupported()) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+
+/** Pide permiso de notificaciones y registra este dispositivo para recibir avisos push. */
+export async function enablePush() {
+  if (!pushSupported()) throw new Error('Este navegador no admite notificaciones push');
+  const { publicKey } = await api('/api/push/key');
+  if (!publicKey) throw new Error('Las notificaciones push no están configuradas en el servidor');
+  if (await Notification.requestPermission() !== 'granted') {
+    throw new Error('Permiso de notificaciones denegado. Actívalo en los ajustes del celular para esta app.');
+  }
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+  await api('/api/me/push', { method: 'POST', body: sub.toJSON() });
+  return sub;
+}
+
+export async function disablePush() {
+  const sub = await pushSubscription();
+  if (!sub) return;
+  await api('/api/me/push/remove', { method: 'POST', body: { endpoint: sub.endpoint } }).catch(() => {});
+  await sub.unsubscribe();
+}
 
 if (configured) {
   // Mantiene el token de Realtime al día cuando Supabase renueva la sesión.

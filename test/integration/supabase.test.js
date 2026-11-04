@@ -14,6 +14,13 @@ const OFFICE = { lat: 19.4326, lng: -99.1332 };
 const ADMIN = { email: 'admin@empresa.com', password: 'admin-secreto-123' };
 const stamp = Date.now();
 
+/** Hora local de la Ciudad de México desplazada `offset` minutos, como HH:MM (y los minutos del día). */
+function cdmx(offset = 0) {
+  const [h, m] = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Mexico_City', hourCycle: 'h23', hour: '2-digit', minute: '2-digit' })
+    .format(new Date(Date.now() + offset * 60_000)).split(':').map(Number);
+  return { hhmm: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`, minutes: h * 60 + m };
+}
+
 let service;
 const clients = [];
 
@@ -38,11 +45,8 @@ async function api(token, method, path, body, headers = {}) {
 before(async () => {
   if (skip) return;
   service = createClient(API_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-  const { data } = await service.auth.admin.listUsers();
-  if (!data.users.some((u) => u.email === ADMIN.email)) {
-    const { error } = await service.auth.admin.createUser({ ...ADMIN, email_confirm: true });
-    if (error) throw error;
-  }
+  const { error } = await service.auth.admin.createUser({ ...ADMIN, email_confirm: true });
+  if (error && error.code !== 'email_exists') throw error;
 });
 
 after(async () => {
@@ -63,6 +67,7 @@ test('flujo completo en Supabase: alta, rostro, entrada, salida, tiempo real y r
   const email = `ana.${stamp}@empresa.com`;
   const created = await api(admin.token, 'POST', '/admin/users', {
     name: 'Ana García', email, password: 'secreta123', department: 'Finanzas', location_id: loc.body.location.id,
+    schedule_start: cdmx().hhmm, schedule_end: cdmx(8 * 60).hhmm, work_days: '0,1,2,3,4,5,6',
   });
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const dup = await api(admin.token, 'POST', '/admin/users', { name: 'Otra', email, password: 'secreta123' });
@@ -316,6 +321,80 @@ test('usuarios: desactivar, eliminar y protecciones', { skip: skip || !process.e
     assert.equal((await db`select count(*)::int as n from asiste.records where user_id = ${id}`)[0].n, 0);
     assert.equal((await db`select count(*)::int as n from auth.users where id = ${id}`)[0].n, 0);
     assert.equal((await api(admin.token, 'DELETE', `/admin/users/${id}`)).status, 404);
+  } finally {
+    await db.end();
+  }
+});
+
+test('entrada con más de 30 min de retraso: requiere autorización del administrador y notifica', {
+  skip: skip || !process.env.DB_URL || (cdmx().minutes < 60 && 'cerca de la medianoche en CDMX'),
+}, async () => {
+  const { default: postgres } = await import('postgres');
+  const db = postgres(process.env.DB_URL, { max: 1 });
+  try {
+    const admin = await signIn(ADMIN);
+    const adminMe = (await api(admin.token, 'GET', '/me')).body.user;
+    const [loc] = await db`select id from asiste.locations where company_id = ${adminMe.company_id} order by id limit 1`;
+    const email = `tarde.${stamp}@empresa.com`;
+    const created = await api(admin.token, 'POST', '/admin/users', {
+      name: 'Luis Tarde', email, password: 'secreta123', location_id: loc.id, tolerance_min: 10,
+      schedule_start: cdmx(-45).hhmm, schedule_end: cdmx(6 * 60).hhmm, work_days: '0,1,2,3,4,5,6',
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const [{ lat, lng }] = await db`select lat, lng from asiste.locations where id = ${loc.id}`;
+    const luis = await signIn({ email, password: 'secreta123' });
+    await api(luis.token, 'POST', '/me/face', { descriptors: [FACE, FACE, FACE] });
+
+    // Suscripción push del dispositivo
+    const { createECDH, randomBytes } = await import('node:crypto');
+    const ecdh = createECDH('prime256v1');
+    const keys = { p256dh: ecdh.generateKeys().toString('base64url'), auth: randomBytes(16).toString('base64url') };
+    let r = await api(luis.token, 'POST', '/me/push', { endpoint: 'https://push.invalid/abc', keys });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal((await api(luis.token, 'POST', '/me/push', { endpoint: 'http://inseguro' })).status, 400);
+
+    r = await api(luis.token, 'POST', '/attendance', { type: 'in', lat, lng, accuracy: 10, descriptor: FACE });
+    assert.equal(r.status, 202, JSON.stringify(r.body));
+    assert.equal(r.body.record.status, 'pending');
+    assert.ok(r.body.pending.minutesLate >= 44);
+    const recordId = r.body.record.id;
+
+    r = await api(luis.token, 'POST', '/attendance', { type: 'in', lat, lng, accuracy: 10, descriptor: FACE });
+    assert.equal(r.status, 409, 'no se acumulan solicitudes');
+    r = await api(luis.token, 'POST', '/attendance', { type: 'out', lat, lng, accuracy: 10, descriptor: FACE });
+    assert.equal(r.status, 409, 'una entrada pendiente no abre la jornada');
+    let st = await api(luis.token, 'GET', '/me/status');
+    assert.equal(st.body.open, null);
+    assert.ok(st.body.pending);
+
+    // El administrador recibe la notificación en la campana
+    const notes = await api(admin.token, 'GET', '/me/notifications');
+    assert.ok(notes.body.unread >= 1);
+    assert.ok(notes.body.items.some((n) => n.kind === 'late_request' && n.title.includes('Luis Tarde')));
+
+    let list = await api(admin.token, 'GET', '/admin/late-requests');
+    const req = list.body.items.find((x) => x.record_id === recordId);
+    assert.ok(req, 'la solicitud aparece como pendiente');
+    assert.equal(list.body.lateLimitMin, 30);
+
+    assert.equal((await api(luis.token, 'POST', `/admin/late-requests/${req.id}`, { status: 'approved' })).status, 403);
+    assert.equal((await api(admin.token, 'POST', `/admin/late-requests/${req.id}`, { status: 'rejected', notes: '' })).status, 400);
+    r = await api(admin.token, 'POST', `/admin/late-requests/${req.id}`, { status: 'approved', notes: 'Tráfico por accidente' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.item.record.status, 'valid');
+    assert.equal(r.body.item.record.late, true);
+    assert.equal((await api(admin.token, 'POST', `/admin/late-requests/${req.id}`, { status: 'rejected', notes: 'Cambio de opinión' })).status, 409);
+
+    st = await api(luis.token, 'GET', '/me/status');
+    assert.ok(st.body.open, 'la entrada autorizada abre la jornada con su hora original');
+    assert.equal(st.body.pending, null);
+    const mine = await api(luis.token, 'GET', '/me/notifications');
+    assert.ok(mine.body.items.some((n) => n.kind === 'late_decision' && n.title === 'Entrada autorizada'));
+    r = await api(luis.token, 'POST', '/me/notifications/read', {});
+    assert.equal((await api(luis.token, 'GET', '/me/notifications')).body.unread, 0);
+
+    r = await api(luis.token, 'POST', '/attendance', { type: 'out', lat, lng, accuracy: 10, descriptor: FACE });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
   } finally {
     await db.end();
   }

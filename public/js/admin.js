@@ -1,6 +1,7 @@
 import { api, clock, download, live, session } from './api.js';
 
 import { buildIncidenciasXlsx, incidenciasData, isoWeek, payrollWeek } from './incidencias.js';
+import { mountBell } from './notifications.js';
 
 const activeCompany = () => session.companyId || session.user.company_id;
 import {
@@ -11,6 +12,7 @@ const SECTIONS = [
   ['dashboard', 'grid', 'Dashboard'],
   ['personal', 'users', 'Personal'],
   ['registros', 'list', 'Registros'],
+  ['autorizaciones', 'bell', 'Autorizaciones'],
   ['horas-extras', 'clock', 'Horas extras'],
   ['reportes', 'report', 'Reportes'],
   ['ubicaciones', 'pin', 'Ubicaciones'],
@@ -42,6 +44,7 @@ function layout(root, active, title, actions = '') {
     </div>
   </div>`;
   if (user.role === 'superadmin') fillCompanySwitch($('[data-company]', root));
+  mountBell($('.admin-actions', root));
   return $('.admin-body', root);
 }
 
@@ -65,8 +68,9 @@ async function fillCompanySwitch(select) {
 
 const typeBadge = (r) => `<span class="badge ${r.type === 'in' ? 'badge-in' : 'badge-out'}">${icon(r.type === 'in' ? 'login' : 'logout')}${r.type === 'in' ? 'Entrada' : 'Salida'}</span>`;
 const statusBadge = (r) => r.status === 'valid'
-  ? `<span class="badge badge-ok">${icon('check')}Válido${r.late ? ' · retardo' : ''}</span>`
-  : `<span class="badge badge-bad" title="${esc(r.reason)}">${icon('x')}Rechazado</span>`;
+  ? `<span class="badge badge-ok" title="${esc(r.reason)}">${icon('check')}Válido${r.late ? ' · retardo' : ''}</span>`
+  : r.status === 'pending' ? `<span class="badge badge-warn" title="${esc(r.reason)}">${icon('alert')}Por autorizar</span>`
+    : `<span class="badge badge-bad" title="${esc(r.reason)}">${icon('x')}Rechazado</span>`;
 const when = (r) => `${fmtShortDate(r.local_date)} ${r.local_time.slice(0, 5)} <small class="muted">${esc(tzLabel(r.timezone))}</small>`;
 
 // ---------------- Dashboard en tiempo real ----------------
@@ -119,6 +123,7 @@ export function dashboardView(root) {
     pending = setTimeout(async () => {
       const latest = await load(r.id);
       const name = latest?.find((x) => x.id === r.id)?.user_name ?? 'Empleado';
+      if (r.status === 'pending') return; // ya lo avisa la campana de notificaciones
       toast(`${name}: ${r.type === 'in' ? 'entrada' : 'salida'} ${r.status === 'valid' ? 'registrada' : 'rechazada'}`, r.status === 'valid' ? 'success' : 'error');
     }, 300);
   });
@@ -143,7 +148,7 @@ export function staffView(root) {
       <td><div class="cell-user">${avatar(u.name, 'avatar-sm')}<div><b>${esc(u.name)}</b><span class="muted">${esc(u.email)}${u.role === 'admin' ? ' · Admin' : u.role === 'superadmin' ? ' · Superadmin' : ''}</span></div></div></td>
       <td>${esc(u.department)}<br><small class="muted">${esc(u.position)}</small></td>
       <td>${esc(u.location_name ?? 'Cualquiera')}<br><small class="muted">${esc(tzLabel(u.timezone))}</small></td>
-      <td>${u.schedule_start}–${u.schedule_end}<br><small class="muted">${u.work_days.split(',').map((d) => DAYS[d]).join(' ')}</small></td>
+      <td>${u.schedule_start}–${u.schedule_end}${u.sat_start ? `<br><small class="muted">Sáb ${u.sat_start}–${u.sat_end}</small>` : ''}<br><small class="muted">${u.work_days.split(',').map((d) => DAYS[d]).join(' ')}</small></td>
       <td>${u.face_enrolled ? `<span class="badge badge-ok">${icon('check')}Registrado</span>` : '<span class="badge badge-warn">Pendiente</span>'}</td>
       <td>${u.active ? 'Activo' : 'Inactivo'}</td>
       <td class="row-actions"><button class="icon-btn" data-edit="${u.id}" title="Editar" aria-label="Editar">${icon('edit')}</button>
@@ -231,6 +236,14 @@ export function staffView(root) {
         <label>Salida<input name="schedule_end" type="time" required value="${v.schedule_end}"></label>
         <label>Tolerancia (min)<input name="tolerance_min" type="number" min="0" max="240" value="${v.tolerance_min}"></label>
       </div>
+      <fieldset class="sat-schedule"><legend>Horario del sábado (opcional)</legend>
+        <div class="inline-3">
+          <label>Entrada sábado<input name="sat_start" type="time" value="${v.sat_start ?? ''}"></label>
+          <label>Salida sábado<input name="sat_end" type="time" value="${v.sat_end ?? ''}"></label>
+          <button type="button" class="btn btn-ghost" data-sat-clear>Igual que entre semana</button>
+        </div>
+        <small class="muted">Déjalo vacío si el sábado se trabaja con el mismo horario de lunes a viernes.</small>
+      </fieldset>
       <fieldset class="days" data-group="work_days"><legend>Días laborales</legend>
         ${[1, 2, 3, 4, 5, 6, 0].map((d) => `<label><input type="checkbox" value="${d}" ${wd.has(String(d)) ? 'checked' : ''}>${DAYS[d]}</label>`).join('')}</fieldset>
       <label class="check"><input type="checkbox" name="active" ${v.active ? 'checked' : ''}> Activo</label>
@@ -238,6 +251,7 @@ export function staffView(root) {
       <p class="form-error"></p>
       <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary" type="submit">Guardar</button></div>
     </form>`, { wide: true });
+    $('[data-sat-clear]', m.el).onclick = () => { $('[name=sat_start]', m.el).value = ''; $('[name=sat_end]', m.el).value = ''; };
     $('form', m.el).onsubmit = async (e) => {
       e.preventDefault();
       const data = formData(e.target);
@@ -265,7 +279,7 @@ export function recordsView(root) {
       <label>Desde<input type="date" name="from" value="${today.slice(0, 8)}01"></label>
       <label>Hasta<input type="date" name="to" value="${today}"></label>
       <label>Empleado<select name="userId"><option value="">Todos</option></select></label>
-      <label>Estado<select name="status"><option value="">Todos</option><option value="valid">Válidos</option><option value="rejected">Rechazados</option></select></label>
+      <label>Estado<select name="status"><option value="">Todos</option><option value="valid">Válidos</option><option value="pending">Por autorizar</option><option value="rejected">Rechazados</option></select></label>
       <button class="btn btn-primary">Filtrar</button>
     </form>
     <section class="panel"><div class="table-wrap"><table class="table">
@@ -538,6 +552,113 @@ export function overtimeView(root) {
     if (b) review(items[Number(b.dataset.review)]);
   });
   const off = live.on('record', (r) => { if (r.type === 'out') load(); });
+  load();
+  return off;
+}
+
+// ---------------- Autorizaciones de entrada tardía ----------------
+
+const LATE = {
+  pending: ['badge-warn', 'alert', 'Pendiente'],
+  approved: ['badge-ok', 'check', 'Autorizada'],
+  rejected: ['badge-bad', 'x', 'Rechazada'],
+};
+
+export function lateRequestsView(root) {
+  const body = layout(root, 'autorizaciones', 'Autorizaciones de entrada');
+  body.innerHTML = `<form class="filters panel">
+      <label>Estado<select name="status">
+        <option value="pending">Pendientes</option><option value="approved">Autorizadas</option>
+        <option value="rejected">Rechazadas</option><option value="all">Todas</option></select></label>
+    </form>
+    <p class="muted small" data-help></p>
+    <section class="panel"><div class="table-wrap"><table class="table">
+      <thead><tr><th>Fecha</th><th>Empleado</th><th>Hora de entrada</th><th class="num">Retraso</th><th>Ubicación</th>
+        <th>Estado</th><th>Observaciones</th><th></th></tr></thead>
+      <tbody data-rows></tbody></table></div></section>`;
+  const form = $('form', body);
+  let items = [];
+
+  async function load() {
+    try {
+      const r = await api(`/api/admin/late-requests?status=${form.status.value}`);
+      items = r.items;
+      $('[data-help]', body).textContent = `Cuando un empleado intenta registrar su entrada más de ${r.lateLimitMin} minutos después
+        de su horario, el registro queda detenido hasta que un administrador lo autorice. Al autorizarlo cuenta con la hora real
+        del intento, como retardo.`;
+      $('[data-rows]', body).innerHTML = items.length ? items.map((it, i) => {
+        const [cls, ic, label] = LATE[it.status];
+        return `<tr>
+        <td>${fmtShortDate(it.local_date)}</td>
+        <td><b>${esc(it.name)}</b><br><small class="muted">${esc(it.department)}</small></td>
+        <td>${it.local_time.slice(0, 5)} <small class="muted">${esc(tzLabel(it.timezone))}</small></td>
+        <td class="num"><b>${fmtDuration(it.minutes_late)}</b></td>
+        <td>${esc(it.location_name ?? '—')}</td>
+        <td><span class="badge ${cls}">${icon(ic)}${label}</span></td>
+        <td class="notes">${it.decided_at ? `${esc(it.notes ?? '')}<br><small class="muted">${esc(it.decided_by_name ?? '')} · ${
+          new Date(it.decided_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</small>` : '<span class="muted">—</span>'}</td>
+        <td class="row-actions">${it.status === 'pending' ? `<button class="btn btn-primary btn-sm" data-review="${i}">Revisar</button>` : ''}</td>
+      </tr>`;
+      }).join('') : `<tr><td colspan="8" class="empty">${form.status.value === 'pending' ? 'No hay entradas por autorizar' : 'Sin solicitudes'}</td></tr>`;
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  function review(it) {
+    const m = modal('Autorizar entrada', `<form class="form">
+      <div class="late-photo" data-photo>${it.has_snapshot ? '<span class="muted">Cargando foto…</span>' : '<span class="muted">Sin foto</span>'}</div>
+      <dl class="info-list">
+        <dt>Empleado</dt><dd>${esc(it.name)} · ${esc(it.department)}</dd>
+        <dt>Fecha</dt><dd>${fmtShortDate(it.local_date)}</dd>
+        <dt>Hora del intento</dt><dd>${it.local_time.slice(0, 5)} (${esc(tzLabel(it.timezone))})</dd>
+        <dt>Retraso</dt><dd><b>${fmtDuration(it.minutes_late)}</b></dd>
+        <dt>Ubicación</dt><dd>${esc(it.location_name ?? '—')}</dd>
+      </dl>
+      <label>Observaciones<textarea name="notes" rows="3" maxlength="1000"
+        placeholder="Obligatorio si se rechaza. Ej. Cita médica justificada"></textarea></label>
+      <p class="form-error"></p>
+      <div class="form-actions">
+        <button type="button" class="btn btn-danger" data-decide="rejected">${icon('x')}Rechazar</button>
+        <button type="button" class="btn btn-primary" data-decide="approved">${icon('check')}Autorizar entrada</button>
+      </div></form>`);
+    const f = $('form', m.el);
+    if (it.has_snapshot) {
+      api(`/api/admin/records/${it.record_id}/snapshot`)
+        .then(({ url }) => { $('[data-photo]', f).innerHTML = `<img src="${esc(url)}" alt="Foto del registro">`; })
+        .catch(() => { $('[data-photo]', f).innerHTML = '<span class="muted">No se pudo cargar la foto</span>'; });
+    }
+    f.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-decide]');
+      if (!b) return;
+      const status = b.dataset.decide;
+      const notes = f.notes.value.trim();
+      if (status === 'rejected' && notes.length < 5) {
+        $('.form-error', f).textContent = 'Escribe el motivo del rechazo (mínimo 5 caracteres).';
+        f.notes.focus();
+        return;
+      }
+      $$('[data-decide]', f).forEach((x) => { x.disabled = true; });
+      try {
+        await api(`/api/admin/late-requests/${it.id}`, { method: 'POST', body: { status, notes } });
+        m.close();
+        toast(status === 'approved' ? `Entrada de ${it.name} autorizada` : `Entrada de ${it.name} rechazada`, 'success');
+        load();
+      } catch (err) {
+        $('.form-error', f).textContent = err.message;
+        $$('[data-decide]', f).forEach((x) => { x.disabled = false; });
+        if (err.status === 409) load();
+      }
+    });
+  }
+
+  form.onchange = load;
+  form.onsubmit = (e) => { e.preventDefault(); load(); };
+  body.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-review]');
+    if (b) review(items[Number(b.dataset.review)]);
+  });
+  const off = live.on('notification', (n) => { if (n.kind === 'late_request') load(); });
   load();
   return off;
 }
