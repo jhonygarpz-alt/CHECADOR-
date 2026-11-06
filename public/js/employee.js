@@ -2,7 +2,7 @@ import { api, changePassword, clock, isAdmin, live, session, signIn } from './ap
 import { averageDescriptor, captureSamples, getPosition, loadFaceApi, snapshot, startCamera, stopCamera } from './face.js';
 import {
   $, avatar, esc, fmtDay, fmtDayMonth, fmtDuration, fmtLongDate, fmtMonth, fmtTime, formData, icon,
-  localDate, mapEmbed, modal, toast, tzLabel,
+  localDate, mapEmbed, modal, rotationIndex, scheduleOn, toast, tzLabel,
 } from './ui.js';
 import { mountBell } from './notifications.js';
 
@@ -129,12 +129,11 @@ export function homeView(root) {
     const [h, m] = fmtTime(now, tz).split(':').map(Number);
     const mins = h * 60 + m;
     const toMin = (s) => s.split(':').reduce((a, b, i) => (i ? a + Number(b) : Number(b) * 60), 0);
-    const saturday = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(now) === 'Sat';
-    const [from, to] = saturday && user.sat_start ? [user.sat_start, user.sat_end] : [user.schedule_start, user.schedule_end];
+    const { start: from, end: to, label } = scheduleOn(user, localDate(now, tz));
     const start = toMin(from);
     const end = toMin(to);
     const sched = $('[data-sched]', el);
-    let text = `Horario ${from} – ${to}`;
+    let text = `${label && label !== 'Sábado' ? `${label}: ` : 'Horario '}${from} – ${to}`;
     let cls = 'muted';
     if (status?.open) { text = 'Jornada en curso'; cls = 'ok'; }
     else if (status?.pending) { text = 'Entrada en espera de autorización'; cls = 'warn'; }
@@ -432,7 +431,9 @@ export function profileView(root, { onLogout }) {
       modal('Datos personales', `<dl class="info-list">
         <dt>Departamento</dt><dd>${esc(user.department)}</dd>
         <dt>Puesto</dt><dd>${esc(user.position)}</dd>
-        <dt>Horario</dt><dd>${esc(user.schedule_start)} – ${esc(user.schedule_end)} (tolerancia ${user.tolerance_min} min)</dd>
+        ${user.rotation ? `<dt>Rotación</dt><dd>${user.rotation.shifts.map((x, i) => `Turno ${i + 1}: ${esc(x.start)} – ${esc(x.end)}`).join('<br>')}
+          <br><small class="muted">Esta semana: Turno ${rotationIndex(user.rotation, localDate(clock.now(), user.timezone)) + 1} (cambia cada lunes) · tolerancia ${user.tolerance_min} min</small></dd>`
+          : `<dt>Horario</dt><dd>${esc(user.schedule_start)} – ${esc(user.schedule_end)} (tolerancia ${user.tolerance_min} min)</dd>`}
         ${user.sat_start ? `<dt>Sábado</dt><dd>${esc(user.sat_start)} – ${esc(user.sat_end)}</dd>` : ''}
         <dt>Días laborales</dt><dd>${user.work_days.split(',').map((d) => DAYS[d]).join(', ')}</dd>
         <dt>Ubicación</dt><dd>${esc(user.location_name ?? 'Cualquier ubicación activa')}</dd>

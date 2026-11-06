@@ -31,6 +31,29 @@ export const fmtDayMonth = (d) => new Intl.DateTimeFormat('es-MX', { day: 'numer
 export const fmtShortDate = (d) => d.split('-').reverse().join('/');
 export const fmtMonth = (ym) => cap(new Intl.DateTimeFormat('es-MX', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(asUtc(`${ym}-01`)));
 
+// ---------- Horarios (mismas reglas que scheduleFor() del servidor) ----------
+
+const addDaysUtc = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400_000).toISOString().slice(0, 10);
+const weekdayUtc = (d) => new Date(`${d}T00:00:00Z`).getUTCDay();
+export const mondayOf = (d) => addDaysUtc(d, -((weekdayUtc(d) + 6) % 7));
+
+/** Índice del turno de la rotación semanal que toca en la fecha `d` (0 = turno 1). */
+export function rotationIndex(rotation, d) {
+  const weeks = Math.round((Date.parse(mondayOf(d)) - Date.parse(mondayOf(rotation.anchor))) / (7 * 86400_000));
+  const n = rotation.shifts.length;
+  return ((weeks % n) + n) % n;
+}
+
+/** Horario que aplica al empleado en la fecha `d`: sábado especial, turno de la semana o su horario normal. */
+export function scheduleOn(user, d) {
+  if (weekdayUtc(d) === 6 && user.sat_start && user.sat_end) return { start: user.sat_start, end: user.sat_end, label: 'Sábado' };
+  if (user.rotation?.shifts?.length) {
+    const i = rotationIndex(user.rotation, d);
+    return { ...user.rotation.shifts[i], label: `Turno ${i + 1}` };
+  }
+  return { start: user.schedule_start, end: user.schedule_end, label: null };
+}
+
 export function fmtDuration(min) {
   if (min === null || min === undefined) return '--:--';
   const m = Math.max(0, Math.round(min));

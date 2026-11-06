@@ -52,7 +52,8 @@ export async function buildReport(sql, config, { companyId, start, end, userId, 
     }
     return {
       userId: u.id, name: u.name, email: u.email, department: u.department, timezone: u.tz,
-      schedule: `${u.schedule_start}-${u.schedule_end}${u.sat_start ? ` (sáb ${u.sat_start}-${u.sat_end})` : ''}`,
+      schedule: `${u.rotation ? `Rota: ${u.rotation.shifts.map((x) => `${x.start}-${x.end}`).join(' / ')}`
+        : `${u.schedule_start}-${u.schedule_end}`}${u.sat_start ? ` (sáb ${u.sat_start}-${u.sat_end})` : ''}`,
       daysWorked: worked.size, expectedDays: expected.length, absences: absences.length, absenceDates: absences,
       lateCount: own.filter((s) => s.late).length, incomplete: own.filter((s) => s.outTs === null).length,
       totalMinutes, averageIn: avgIn === null ? null : minutesToHHMM(avgIn),

@@ -41,6 +41,9 @@ Navegador (PWA, carpeta public/)          Supabase
   y cuándo; los empleados solo pueden consultarlas. Aparecen en el historial del empleado, en los reportes y en el Excel.
 - **Horario del sábado.** Cada empleado puede tener un horario distinto los sábados; si se deja vacío usa el de
   lunes a viernes. Se aplica a retardos, horas extras y autorizaciones.
+- **Rotación de turnos.** Para personal que cambia de turno cada semana: se capturan de 2 a 4 turnos (mañana, tarde,
+  noche…) y la semana en que trabaja el turno 1; cada lunes pasa al siguiente. Retardos, autorizaciones y horas extras
+  usan el turno que le toca esa semana (el horario de sábado, si existe, tiene prioridad).
 - **Entradas tardías con autorización.** Si un empleado intenta registrar su entrada más de `LATE_LIMIT_MINUTES`
   (30 por defecto) después de su horario, el registro queda *por autorizar*: los administradores de su empresa reciben
   un aviso en la campana y por push, y lo autorizan o rechazan en *Autorizaciones* (el rechazo requiere motivo). Al
