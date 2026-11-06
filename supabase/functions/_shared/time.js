@@ -53,11 +53,28 @@ export const humanMinutes = (min) => (min < 60 ? `${min} min` : `${Math.floor(mi
 
 export const weekdayOf = (dateStr) => new Date(`${dateStr}T00:00:00Z`).getUTCDay();
 
-/** Horario de entrada y salida que aplica en `dateStr`: los sábados usa el horario especial si el perfil lo tiene. */
+/** Lunes de la semana (lunes a domingo) a la que pertenece `dateStr`. */
+export const mondayOf = (dateStr) => addDays(dateStr, -((weekdayOf(dateStr) + 6) % 7));
+
+/**
+ * Turno de la rotación semanal que toca en `dateStr`: la semana de `rotation.anchor` trabaja el turno 1, la siguiente
+ * el 2, y así sucesivamente hasta volver a empezar. Devuelve el índice (0 = turno 1).
+ */
+export function rotationIndex(rotation, dateStr) {
+  const weeks = Math.round((Date.parse(mondayOf(dateStr)) - Date.parse(mondayOf(rotation.anchor))) / (7 * 86400_000));
+  const n = rotation.shifts.length;
+  return ((weeks % n) + n) % n;
+}
+
+/**
+ * Horario de entrada y salida que aplica en `dateStr`: los sábados usa el horario especial si el perfil lo tiene;
+ * si el empleado rola turnos, el turno de esa semana; si no, su horario normal.
+ */
 export function scheduleFor(profile, dateStr) {
   if (dateStr && weekdayOf(dateStr) === 6 && profile.sat_start && profile.sat_end) {
     return { start: profile.sat_start, end: profile.sat_end };
   }
+  if (dateStr && profile.rotation?.shifts?.length) return profile.rotation.shifts[rotationIndex(profile.rotation, dateStr)];
   return { start: profile.schedule_start, end: profile.schedule_end };
 }
 

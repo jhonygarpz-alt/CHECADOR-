@@ -5,7 +5,8 @@ import { mountBell } from './notifications.js';
 
 const activeCompany = () => session.companyId || session.user.company_id;
 import {
-  $, $$, avatar, confirmDialog, esc, fmtDuration, fmtShortDate, formData, icon, localDate, mapLink, modal, toast, tzLabel,
+  $, $$, avatar, confirmDialog, esc, fmtDuration, fmtShortDate, formData, icon, localDate, mapLink, modal, rotationIndex,
+  toast, tzLabel,
 } from './ui.js';
 
 const SECTIONS = [
@@ -164,7 +165,9 @@ export function staffView(root) {
       <td><div class="cell-user">${avatar(u.name, 'avatar-sm')}<div><b>${esc(u.name)}</b><span class="muted">${esc(u.email)}${u.role === 'admin' ? ' · Admin' : u.role === 'superadmin' ? ' · Superadmin' : ''}</span></div></div></td>
       <td>${esc(u.department)}<br><small class="muted">${esc(u.position)}</small></td>
       <td>${esc(u.location_name ?? 'Cualquiera')}<br><small class="muted">${esc(tzLabel(u.timezone))}</small></td>
-      <td>${u.schedule_start}–${u.schedule_end}${u.sat_start ? `<br><small class="muted">Sáb ${u.sat_start}–${u.sat_end}</small>` : ''}<br><small class="muted">${u.work_days.split(',').map((d) => DAYS[d]).join(' ')}</small></td>
+      <td>${u.rotation ? `<b>Rola turnos</b> <small class="muted">(esta semana: turno ${rotationIndex(u.rotation, localDate(clock.now(), u.timezone)) + 1})</small><br>
+        ${u.rotation.shifts.map((x, i) => `<small class="muted">T${i + 1} ${x.start}–${x.end}</small>`).join('<br>')}`
+        : `${u.schedule_start}–${u.schedule_end}`}${u.sat_start ? `<br><small class="muted">Sáb ${u.sat_start}–${u.sat_end}</small>` : ''}<br><small class="muted">${u.work_days.split(',').map((d) => DAYS[d]).join(' ')}</small></td>
       <td>${u.face_enrolled ? `<span class="badge badge-ok">${icon('check')}Registrado</span>` : '<span class="badge badge-warn">Pendiente</span>'}</td>
       <td>${u.active ? 'Activo' : 'Inactivo'}</td>
       <td class="row-actions"><button class="icon-btn" data-edit="${u.id}" title="Editar" aria-label="Editar">${icon('edit')}</button>
@@ -248,10 +251,19 @@ export function staffView(root) {
       <label>Ubicación de trabajo<select name="location_id"><option value="">Cualquier ubicación activa</option>
         ${locations.map((l) => `<option value="${l.id}" ${l.id === v.location_id ? 'selected' : ''}>${esc(l.name)} (${esc(tzLabel(l.timezone))})</option>`).join('')}</select></label>
       <div class="inline-3">
-        <label>Entrada<input name="schedule_start" type="time" required value="${v.schedule_start}"></label>
-        <label>Salida<input name="schedule_end" type="time" required value="${v.schedule_end}"></label>
+        <label data-fixed>Entrada<input name="schedule_start" type="time" required value="${v.schedule_start}"></label>
+        <label data-fixed>Salida<input name="schedule_end" type="time" required value="${v.schedule_end}"></label>
         <label>Tolerancia (min)<input name="tolerance_min" type="number" min="0" max="240" value="${v.tolerance_min}"></label>
       </div>
+      <fieldset class="sat-schedule"><legend>Rotación de turnos</legend>
+        <label class="check"><input type="checkbox" data-rot-on ${v.rotation ? 'checked' : ''}> Rola turnos (cambia de turno cada semana)</label>
+        <div class="rot-body" data-rot-body hidden>
+          <div data-rot-rows></div>
+          <button type="button" class="btn btn-ghost btn-sm" data-rot-add>${icon('plus')}Agregar turno</button>
+          <label>Semana en que trabaja el Turno 1<input type="date" data-rot-anchor></label>
+          <small class="muted" data-rot-now></small>
+        </div>
+      </fieldset>
       <fieldset class="sat-schedule"><legend>Horario del sábado (opcional)</legend>
         <div class="inline-3">
           <label>Entrada sábado<input name="sat_start" type="time" value="${v.sat_start ?? ''}"></label>
@@ -268,9 +280,43 @@ export function staffView(root) {
       <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary" type="submit">Guardar</button></div>
     </form>`, { wide: true });
     $('[data-sat-clear]', m.el).onclick = () => { $('[name=sat_start]', m.el).value = ''; $('[name=sat_end]', m.el).value = ''; };
+
+    // Rotación semanal: el turno 1 empieza la semana indicada y cada lunes pasa al siguiente.
+    const today = localDate(clock.now(), session.user.timezone);
+    const rotRows = $('[data-rot-rows]', m.el);
+    const rotRow = (x = { start: '', end: '' }) => `<div class="inline-3 rot-row">
+        <label><span>Entrada <span data-rot-label></span></span><input type="time" data-rs required value="${x.start}"></label>
+        <label><span>Salida <span data-rot-label></span></span><input type="time" data-re required value="${x.end}"></label>
+        <button type="button" class="btn btn-ghost btn-sm" data-rot-del>${icon('trash')}Quitar</button></div>`;
+    const rotShifts = () => $$('.rot-row', rotRows).map((r) => ({ start: $('[data-rs]', r).value, end: $('[data-re]', r).value }));
+    const rotRefresh = () => {
+      const on = $('[data-rot-on]', m.el).checked;
+      $('[data-rot-body]', m.el).hidden = !on;
+      $$('[data-fixed]', m.el).forEach((x) => { x.hidden = on; });
+      $$('[data-rs], [data-re], [data-rot-anchor]', m.el).forEach((x) => { x.required = on; });
+      const rows = $$('.rot-row', rotRows);
+      rows.forEach((r, i) => {
+        $$('[data-rot-label]', r).forEach((x) => { x.textContent = `T${i + 1}`; });
+        $('[data-rot-del]', r).hidden = rows.length <= 2;
+      });
+      $('[data-rot-add]', m.el).hidden = rows.length >= 4;
+      const anchor = $('[data-rot-anchor]', m.el).value;
+      $('[data-rot-now]', m.el).textContent = on && anchor
+        ? `Esta semana le toca el Turno ${rotationIndex({ anchor, shifts: rows }, today) + 1}; cada lunes cambia al siguiente.` : '';
+    };
+    const rot = v.rotation ?? { anchor: today, shifts: [{ start: v.schedule_start, end: v.schedule_end }, { start: '', end: '' }] };
+    rotRows.innerHTML = rot.shifts.map(rotRow).join('');
+    $('[data-rot-anchor]', m.el).value = rot.anchor;
+    $('[data-rot-add]', m.el).onclick = () => { rotRows.insertAdjacentHTML('beforeend', rotRow()); rotRefresh(); };
+    rotRows.addEventListener('click', (e) => { if (e.target.closest('[data-rot-del]')) { e.target.closest('.rot-row').remove(); rotRefresh(); } });
+    $('[data-rot-on]', m.el).onchange = rotRefresh;
+    $('[data-rot-anchor]', m.el).onchange = rotRefresh;
+    rotRefresh();
+
     $('form', m.el).onsubmit = async (e) => {
       e.preventDefault();
       const data = formData(e.target);
+      data.rotation = $('[data-rot-on]', m.el).checked ? { anchor: $('[data-rot-anchor]', m.el).value, shifts: rotShifts() } : null;
       data.tolerance_min = Number(data.tolerance_min);
       if (!data.password) delete data.password;
       try {

@@ -407,3 +407,9 @@ body.live-on .live-badge i { background: var(--success); box-shadow: 0 0 0 3px v
   .print-only { display: block; }
   .table-wrap { overflow: visible; }
 }
+.rot-body { display: grid; gap: 8px; }
+.rot-row .btn { align-self: end; }
+/* Evita que campos de hora/fecha y los fieldset desborden el modal en pantallas angostas. */
+fieldset { min-width: 0; }
+.inline-3 > *, .form-grid > * { min-width: 0; }
+.form input, .form select { min-width: 0; max-width: 100%; }

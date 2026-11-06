@@ -16,7 +16,9 @@ import {
 } from './notify.js';
 import { decideOvertime, listOvertime, withOvertime } from './overtime.js';
 import { buildDashboard, buildReport, pairShifts, reportToCsv } from './reports.js';
-import { addDays, humanMinutes, isDateString, isHHMM, isValidTimeZone, periodRange, zonedParts } from './time.js';
+import {
+  addDays, humanMinutes, isDateString, isHHMM, isValidTimeZone, mondayOf, periodRange, zonedParts,
+} from './time.js';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -59,6 +61,7 @@ export function createHandler({ sql, auth, storage, config, push = null }) {
       location_id: p.location_id, location_name: location?.name ?? null, location,
       timezone: location?.timezone ?? config.defaultTz,
       schedule_start: p.schedule_start, schedule_end: p.schedule_end, sat_start: p.sat_start ?? null, sat_end: p.sat_end ?? null,
+      rotation: p.rotation ?? null,
       tolerance_min: p.tolerance_min,
       work_days: p.work_days, active: p.active, face_enrolled: !!p.face_enrolled, face_enrolled_at: p.face_enrolled_at,
       company_id: p.company_id, company_name: p.company_name ?? null,
@@ -204,9 +207,10 @@ export function createHandler({ sql, auth, storage, config, push = null }) {
     }
     const { id } = await auth.createUser({ email: d.email, password: d.password });
     await sql`insert into asiste.profiles (id, company_id, name, email, role, position, department, location_id, schedule_start,
-        schedule_end, sat_start, sat_end, tolerance_min, work_days, active)
+        schedule_end, sat_start, sat_end, rotation, tolerance_min, work_days, active)
       values (${id}, ${companyId}, ${d.name}, ${d.email}, ${d.role}, ${d.position}, ${d.department}, ${d.location_id},
-        ${d.schedule_start}, ${d.schedule_end}, ${d.sat_start}, ${d.sat_end}, ${d.tolerance_min}, ${d.work_days}, ${d.active})`;
+        ${d.schedule_start}, ${d.schedule_end}, ${d.sat_start}, ${d.sat_end}, ${d.rotation && sql.json(d.rotation)}, ${d.tolerance_min},
+        ${d.work_days}, ${d.active})`;
     if (!d.active) await auth.updateUser(id, { banned: true });
     return json({ user: await publicUser(await loadProfile(id)) }, 201);
   });
@@ -230,7 +234,8 @@ export function createHandler({ sql, auth, storage, config, push = null }) {
     });
     await sql`update asiste.profiles set name = ${d.name}, email = ${d.email}, role = ${d.role}, position = ${d.position},
         department = ${d.department}, location_id = ${d.location_id}, schedule_start = ${d.schedule_start},
-        schedule_end = ${d.schedule_end}, sat_start = ${d.sat_start}, sat_end = ${d.sat_end}, tolerance_min = ${d.tolerance_min}, work_days = ${d.work_days}, active = ${d.active}
+        schedule_end = ${d.schedule_end}, sat_start = ${d.sat_start}, sat_end = ${d.sat_end},
+        rotation = ${d.rotation && sql.json(d.rotation)}, tolerance_min = ${d.tolerance_min}, work_days = ${d.work_days}, active = ${d.active}
       where id = ${current.id}`;
     return json({ user: await publicUser(await loadProfile(current.id)) });
   });
@@ -456,6 +461,7 @@ export function createHandler({ sql, auth, storage, config, push = null }) {
       location_id: b.location_id ? Number(b.location_id) : null,
       schedule_start: s(b.schedule_start) || '09:00', schedule_end: s(b.schedule_end) || '18:00',
       sat_start: s(b.sat_start) || null, sat_end: s(b.sat_end) || null,
+      rotation: validateRotation(b.rotation),
       tolerance_min: Number(b.tolerance_min ?? 10),
       work_days: Array.isArray(b.work_days) ? b.work_days.join(',') : s(b.work_days) || '1,2,3,4,5',
       active: !(b.active === false || b.active === 0),
@@ -466,12 +472,24 @@ export function createHandler({ sql, auth, storage, config, push = null }) {
     if (!isHHMM(d.schedule_start) || !isHHMM(d.schedule_end)) throw new HttpError(400, 'Horario no válido (HH:MM)');
     if (!d.sat_start !== !d.sat_end) throw new HttpError(400, 'Indica la entrada y la salida del sábado, o deja ambas vacías');
     if (d.sat_start && (!isHHMM(d.sat_start) || !isHHMM(d.sat_end))) throw new HttpError(400, 'Horario del sábado no válido (HH:MM)');
+    // Con rotación, el turno 1 también queda como horario principal (listados y compatibilidad).
+    if (d.rotation) Object.assign(d, { schedule_start: d.rotation.shifts[0].start, schedule_end: d.rotation.shifts[0].end });
     if (!Number.isInteger(d.tolerance_min) || d.tolerance_min < 0 || d.tolerance_min > 240) throw new HttpError(400, 'Tolerancia no válida');
     if (!/^[0-6](,[0-6])*$/.test(d.work_days)) throw new HttpError(400, 'Días laborales no válidos');
     if (d.location_id && !(await sql`select 1 from asiste.locations where id = ${d.location_id} and company_id = ${companyId}`).length) {
       throw new HttpError(400, 'Ubicación no válida');
     }
     return d;
+  }
+
+  /** Rotación semanal de turnos: { anchor: fecha de una semana del turno 1, shifts: [{ start, end }, ...] } o null. */
+  function validateRotation(r) {
+    if (r === undefined || r === null || r === '') return null;
+    const shifts = Array.isArray(r.shifts) ? r.shifts.map((x) => ({ start: String(x?.start ?? ''), end: String(x?.end ?? '') })) : [];
+    if (shifts.length < 2 || shifts.length > 4) throw new HttpError(400, 'La rotación debe tener entre 2 y 4 turnos');
+    if (!shifts.every((x) => isHHMM(x.start) && isHHMM(x.end))) throw new HttpError(400, 'Horario de turno no válido (HH:MM)');
+    if (!isDateString(r.anchor)) throw new HttpError(400, 'Indica la semana en que empieza el turno 1');
+    return { anchor: mondayOf(r.anchor), shifts };
   }
 
   function validateLocation(b) {

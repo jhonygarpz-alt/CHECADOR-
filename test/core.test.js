@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addDays, periodRange, zonedParts } from '../supabase/functions/_shared/time.js';
+import { addDays, mondayOf, periodRange, rotationIndex, scheduleFor, zonedParts } from '../supabase/functions/_shared/time.js';
 import { distanceMeters } from '../supabase/functions/_shared/geo.js';
 import { averageDescriptor, euclideanDistance, isValidDescriptor } from '../supabase/functions/_shared/face.js';
 import { pairShifts } from '../supabase/functions/_shared/shifts.js';
@@ -72,4 +72,19 @@ test('horas extras: tiempo trabajado por encima de la jornada programada', () =>
   assert.equal(scheduledMinutes(withSat, '2025-03-28'), 540, 'viernes usa el horario normal');
   assert.equal(scheduledMinutes(office, '2025-03-29'), 540, 'sin horario de sábado usa el normal');
   assert.equal(overtimeMinutes({ minutes: 360, date: '2025-03-29' }, withSat, config), 60);
+});
+
+test('rotación semanal de turnos', () => {
+  const rot = { schedule_start: '07:00', schedule_end: '15:00',
+    rotation: { anchor: '2025-03-26', shifts: [{ start: '07:00', end: '15:00' }, { start: '15:00', end: '23:00' }] } };
+  assert.equal(mondayOf('2025-03-30'), '2025-03-24', 'el domingo pertenece a la semana del lunes anterior');
+  assert.deepEqual(scheduleFor(rot, '2025-03-24'), { start: '07:00', end: '15:00' }, 'semana del ancla: turno 1');
+  assert.deepEqual(scheduleFor(rot, '2025-03-31'), { start: '15:00', end: '23:00' }, 'semana siguiente: turno 2');
+  assert.deepEqual(scheduleFor(rot, '2025-04-07'), { start: '07:00', end: '15:00' }, 'vuelve a empezar');
+  assert.deepEqual(scheduleFor(rot, '2025-03-17'), { start: '15:00', end: '23:00' }, 'semanas anteriores al ancla');
+  const three = { rotation: { anchor: '2025-03-24', shifts: [{ start: '06:00', end: '14:00' }, { start: '14:00', end: '22:00' }, { start: '22:00', end: '06:00' }] } };
+  assert.equal(rotationIndex(three.rotation, '2025-04-09'), 2);
+  assert.equal(scheduledMinutes(three, '2025-04-09'), 480, 'turno nocturno que cruza la medianoche');
+  const satRot = { ...rot, sat_start: '08:00', sat_end: '13:00' };
+  assert.deepEqual(scheduleFor(satRot, '2025-04-05'), { start: '08:00', end: '13:00' }, 'el horario de sábado tiene prioridad');
 });

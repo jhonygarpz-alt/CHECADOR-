@@ -404,3 +404,27 @@ test('entrada con más de 30 min de retraso: requiere autorización del administ
     await db.end();
   }
 });
+
+test('rotación semanal de turnos: alta, validación y desactivación', { skip }, async () => {
+  const admin = await signIn(ADMIN);
+  const email = `rota.${stamp}@empresa.com`;
+  const shifts = [{ start: '07:00', end: '15:00' }, { start: '15:00', end: '23:00' }];
+  let r = await api(admin.token, 'POST', '/admin/users', {
+    name: 'Rosa Rotación', email, password: 'secreta123', rotation: { anchor: '2026-11-05', shifts },
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.user.rotation, { anchor: '2026-11-02', shifts }, 'el ancla se guarda como el lunes de esa semana');
+  assert.equal(r.body.user.schedule_start, '07:00', 'el turno 1 queda como horario principal');
+  const id = r.body.user.id;
+
+  r = await api(admin.token, 'PUT', `/admin/users/${id}`, { rotation: { anchor: '2026-11-02', shifts: [shifts[0]] } });
+  assert.equal(r.status, 400, 'mínimo dos turnos');
+  r = await api(admin.token, 'PUT', `/admin/users/${id}`, { rotation: { anchor: '2026-11-02', shifts: [shifts[0], { start: '25:00', end: '23:00' }] } });
+  assert.equal(r.status, 400, 'horario no válido');
+
+  r = await api(admin.token, 'PUT', `/admin/users/${id}`, { rotation: null, schedule_start: '09:00', schedule_end: '18:00' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.user.rotation, null);
+  assert.equal(r.body.user.schedule_start, '09:00');
+  await api(admin.token, 'DELETE', `/admin/users/${id}`);
+});
