@@ -428,3 +428,41 @@ test('rotación semanal de turnos: alta, validación y desactivación', { skip }
   assert.equal(r.body.user.schedule_start, '09:00');
   await api(admin.token, 'DELETE', `/admin/users/${id}`);
 });
+
+test('registro manual: el administrador captura entrada y salida con motivo', { skip: skip || !process.env.DB_URL }, async () => {
+  const { default: postgres } = await import('postgres');
+  const db = postgres(process.env.DB_URL, { max: 1 });
+  try {
+    const admin = await signIn(ADMIN);
+    const me = (await api(admin.token, 'GET', '/me')).body.user;
+    const [loc] = await db`select id from asiste.locations where company_id = ${me.company_id} and timezone = 'America/Mexico_City' order by id limit 1`;
+    const created = await api(admin.token, 'POST', '/admin/users', {
+      name: 'Manuel Manual', email: `manual.${stamp}@empresa.com`, password: 'secreta123', location_id: loc?.id,
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const id = created.body.user.id;
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date(Date.now() - 86400_000));
+    const manual = (b) => api(admin.token, 'POST', '/admin/records/manual', { user_id: id, notes: 'Olvidó checar', ...b });
+
+    assert.equal((await manual({ type: 'out', date: day, time: '18:00' })).status, 409, 'salida sin entrada');
+    assert.equal((await manual({ type: 'in', date: day, time: '08:00', notes: 'x' })).status, 400, 'motivo obligatorio');
+    assert.equal((await manual({ type: 'in', date: '2099-01-01', time: '08:00' })).status, 400, 'no se registran horas futuras');
+
+    let r = await manual({ type: 'in', date: day, time: '08:00' });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.record.manual, true);
+    assert.equal(r.body.record.local_time, '08:00:00');
+    assert.equal((await manual({ type: 'in', date: day, time: '09:00' })).status, 409, 'ya hay una entrada abierta');
+    r = await manual({ type: 'out', date: day, time: '20:00' });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal((await manual({ type: 'out', date: day, time: '19:00' })).status, 409, 'la jornada ya tiene salida');
+
+    const rep = await api(admin.token, 'GET', `/admin/reports?period=custom&start=${day}&end=${day}&userId=${id}`);
+    assert.equal(rep.body.rows[0].minutes, 720, 'jornada de 12 h');
+    const [{ n }] = await db`select count(*)::int as n from asiste.notifications where user_id = ${id} and kind = 'manual_record'`;
+    assert.equal(n, 2, 'el empleado recibe el aviso');
+    await api(admin.token, 'DELETE', `/admin/users/${id}`);
+  } finally {
+    await db.end();
+  }
+});

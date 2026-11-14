@@ -85,7 +85,8 @@ async function fillCompanySwitch(select) {
 
 const typeBadge = (r) => `<span class="badge ${r.type === 'in' ? 'badge-in' : 'badge-out'}">${icon(r.type === 'in' ? 'login' : 'logout')}${r.type === 'in' ? 'Entrada' : 'Salida'}</span>`;
 const statusBadge = (r) => r.status === 'valid'
-  ? `<span class="badge badge-ok" title="${esc(r.reason)}">${icon('check')}Válido${r.late ? ' · retardo' : ''}</span>`
+  ? `<span class="badge badge-ok" title="${esc(r.reason)}">${icon('check')}Válido${r.late ? ' · retardo' : ''}</span>${
+    r.manual ? ` <span class="badge badge-warn" title="${esc(r.reason)}">${icon('edit')}Manual</span>` : ''}`
   : r.status === 'pending' ? `<span class="badge badge-warn" title="${esc(r.reason)}">${icon('alert')}Por autorizar</span>`
     : `<span class="badge badge-bad" title="${esc(r.reason)}">${icon('x')}Rechazado</span>`;
 const when = (r) => `${fmtShortDate(r.local_date)} ${r.local_time.slice(0, 5)} <small class="muted">${esc(tzLabel(r.timezone))}</small>`;
@@ -335,7 +336,8 @@ export function staffView(root) {
 // ---------------- Registros (auditoría) ----------------
 
 export function recordsView(root) {
-  const body = layout(root, 'registros', 'Registros', `<button class="btn btn-danger" data-delete>${icon('x')}Eliminar registros</button>`);
+  const body = layout(root, 'registros', 'Registros', `<button class="btn btn-primary" data-manual>${icon('plus')}Registro manual</button>
+    <button class="btn btn-danger" data-delete>${icon('x')}Eliminar registros</button>`);
   const today = localDate(clock.now(), session.user.timezone);
   body.innerHTML = `<form class="filters panel">
       <label>Desde<input type="date" name="from" value="${today.slice(0, 8)}01"></label>
@@ -348,9 +350,48 @@ export function recordsView(root) {
       <thead><tr><th>Foto</th><th>Usuario</th><th>Tipo</th><th>Fecha y hora local</th><th>Ubicación</th><th>Distancia / GPS</th><th>Rostro</th><th>Estado</th></tr></thead>
       <tbody data-rows></tbody></table></div></section>`;
   const form = $('form', body);
+  let staff = [];
   api('/api/admin/users').then(({ users }) => {
+    staff = users;
     form.userId.insertAdjacentHTML('beforeend', users.map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join(''));
   });
+
+  // Entrada o salida capturada por el administrador cuando el empleado no pudo checar.
+  $('[data-manual]', root).onclick = () => {
+    const now = clock.now();
+    const m = modal('Registro manual', `<form class="form">
+      <p class="muted small">Para cuando un empleado no pudo checar (olvido, celular sin batería, jornada vencida). Queda
+        marcado como <b>Manual</b>, con tu nombre y el motivo, y el empleado recibe un aviso.</p>
+      <label>Empleado<select name="user_id" required><option value="">Selecciona…</option>
+        ${staff.filter((u) => u.active).map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></label>
+      <label>Tipo<select name="type"><option value="out">Salida</option><option value="in">Entrada</option></select></label>
+      <div class="inline-3">
+        <label>Fecha<input type="date" name="date" required max="${today}" value="${today}"></label>
+        <label>Hora<input type="time" name="time" required value="${String(now.getHours()).padStart(2, '0')}:00"></label>
+      </div>
+      <small class="muted">Fecha y hora locales del lugar de trabajo del empleado.</small>
+      <label>Motivo *<textarea name="notes" rows="2" minlength="5" maxlength="500" required
+        placeholder="Ej. No pudo checar su salida, confirmada por su supervisor"></textarea></label>
+      <p class="form-error"></p>
+      <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button>
+        <button class="btn btn-primary" type="submit">${icon('check')}Registrar</button></div></form>`);
+    const f = $('form', m.el);
+    if (form.userId.value) f.user_id.value = form.userId.value;
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      $('button[type=submit]', f).disabled = true;
+      try {
+        const { record } = await api('/api/admin/records/manual', { method: 'POST', body: formData(f) });
+        m.close();
+        toast(`${record.type === 'in' ? 'Entrada' : 'Salida'} de ${record.user_name} registrada`, 'success');
+        if (form.to.value < record.local_date) form.to.value = record.local_date;
+        load();
+      } catch (err) {
+        $('.form-error', f).textContent = err.message;
+        $('button[type=submit]', f).disabled = false;
+      }
+    };
+  };
 
   async function load() {
     const q = new URLSearchParams(Object.entries(formData(form)).filter(([, v]) => v));

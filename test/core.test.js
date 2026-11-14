@@ -4,6 +4,7 @@ import { addDays, mondayOf, periodRange, rotationIndex, scheduleFor, zonedParts 
 import { distanceMeters } from '../supabase/functions/_shared/geo.js';
 import { averageDescriptor, euclideanDistance, isValidDescriptor } from '../supabase/functions/_shared/face.js';
 import { pairShifts } from '../supabase/functions/_shared/shifts.js';
+import { zonedTimeToUtc } from '../supabase/functions/_shared/attendance.js';
 import { overtimeMinutes, scheduledMinutes } from '../supabase/functions/_shared/overtime.js';
 
 test('zonedParts usa la zona horaria real de cada ubicación', () => {
@@ -87,4 +88,11 @@ test('rotación semanal de turnos', () => {
   assert.equal(scheduledMinutes(three, '2025-04-09'), 480, 'turno nocturno que cruza la medianoche');
   const satRot = { ...rot, sat_start: '08:00', sat_end: '13:00' };
   assert.deepEqual(scheduleFor(satRot, '2025-04-05'), { start: '08:00', end: '13:00' }, 'el horario de sábado tiene prioridad');
+});
+
+test('hora local a UTC (registros manuales)', () => {
+  assert.equal(zonedTimeToUtc('2026-11-13', '22:00', 'America/Matamoros').toISOString(), '2026-11-14T04:00:00.000Z', 'CST');
+  assert.equal(zonedTimeToUtc('2026-07-01', '22:00', 'America/Matamoros').toISOString(), '2026-07-02T03:00:00.000Z', 'horario de verano');
+  assert.equal(zonedTimeToUtc('2026-11-13', '08:30', 'America/Mexico_City').toISOString(), '2026-11-13T14:30:00.000Z');
+  assert.equal(zonedTimeToUtc('2026-11-13', '08:30', 'America/Tijuana').toISOString(), '2026-11-13T16:30:00.000Z');
 });
