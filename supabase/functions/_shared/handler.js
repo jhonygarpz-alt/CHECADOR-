@@ -8,7 +8,9 @@
 //   push     → (opcional) { publicKey, send(subscription, payload) → código HTTP } para Web Push
 //   config   → ver loadConfig()
 
-import { HttpError, listRecords, openShift, pendingLateRequest, recordView, registerAttendance, userTimezone } from './attendance.js';
+import {
+  HttpError, listRecords, openShift, pendingLateRequest, recordView, registerAttendance, registerManual, userTimezone,
+} from './attendance.js';
 import { averageDescriptor, isValidDescriptor } from './face.js';
 import { isLatitude, isLongitude } from './geo.js';
 import {
@@ -323,6 +325,19 @@ export function createHandler({ sql, auth, storage, config, push = null }) {
       }
     }
     return json({ deleted: deleted.length });
+  });
+
+  // Entrada o salida capturada por un administrador; el empleado recibe un aviso.
+  route('POST', '/admin/records/manual', ADMIN, async ({ user, body, companyId }) => {
+    const employee = await profileInCompany(String(body?.user_id ?? ''), companyId);
+    const record = await registerManual(sql, user, employee, body, { config });
+    await notify(sql, push, [employee.id], {
+      companyId, kind: 'manual_record',
+      title: `${record.type === 'in' ? 'Entrada' : 'Salida'} registrada por un administrador`,
+      body: `${user.name} registró tu ${record.type === 'in' ? 'entrada' : 'salida'} del ${record.local_date.split('-').reverse().join('/')} a las ${record.local_time.slice(0, 5)}.`,
+      link: '#/historial',
+    }).catch((err) => console.error('notify', err));
+    return json({ record }, 201);
   });
 
   route('GET', '/admin/records/:id/snapshot', ADMIN, async ({ params, companyId }) => {

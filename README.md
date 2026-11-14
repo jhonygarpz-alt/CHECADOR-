@@ -48,6 +48,9 @@ Navegador (PWA, carpeta public/)          Supabase
   (30 por defecto) después de su horario, el registro queda *por autorizar*: los administradores de su empresa reciben
   un aviso en la campana y por push, y lo autorizan o rechazan en *Autorizaciones* (el rechazo requiere motivo). Al
   autorizarlo cuenta con la hora real del intento, marcado como retardo, y el empleado recibe la respuesta.
+- **Registro manual.** En *Registros*, el administrador captura una entrada o salida cuando el empleado no pudo checar
+  (olvido, celular sin batería, jornada vencida). Requiere motivo, queda marcada como *Manual* con quién la hizo y el
+  empleado recibe un aviso.
 - **Notificaciones.** Campana en tiempo real para administradores y empleados, y notificaciones push al celular
   (Web Push; en la app de Android se entregan como notificaciones del sistema). Cada persona las activa desde la
   campana en su dispositivo; al cerrar sesión el dispositivo deja de recibirlas.
@@ -104,7 +107,7 @@ Cada push a la rama de producción vuelve a publicar la app.
 | `DEFAULT_TZ` | `America/Mexico_City` | Zona horaria para empleados sin ubicación asignada |
 | `FACE_THRESHOLD` | `0.5` | Distancia máxima para aceptar un rostro (menor = más estricto) |
 | `MAX_GPS_ACCURACY_M` | `100` | Precisión GPS mínima requerida, en metros |
-| `MAX_SHIFT_HOURS` | `16` | Duración máxima de una jornada para emparejar entrada y salida |
+| `MAX_SHIFT_HOURS` | `20` | Duración máxima de una jornada para emparejar entrada y salida |
 | `MIN_OVERTIME_MINUTES` | `15` | Minutos mínimos por encima de la jornada para considerarse horas extras |
 | `LATE_LIMIT_MINUTES` | `30` | Retraso a partir del cual la entrada requiere autorización de un administrador |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | — | Opcional. Llaves de las notificaciones push; si no se configuran, el servidor las genera una vez y las guarda en `asiste.app_settings` |
